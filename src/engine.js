@@ -67,6 +67,8 @@
     const k = detectarClasse(nomeFundo);
     const p = { chave: k, ...JSON.parse(JSON.stringify(PRESETS[k])) };
     if (p.liqResgateMin == null) p.liqResgateMin = 90;   // % mín. conversível no prazo de resgate
+    if (p.lcrD1Dias == null) p.lcrD1Dias = 1;            // janela do LCR curtíssimo prazo
+    if (p.lcrD5Dias == null) p.lcrD5Dias = 5;            // janela do LCR curto prazo
     return p;
   }
 
@@ -268,12 +270,14 @@
         return { status: geq(a, min, BL), atual: pct(a) + ' até D+' + pol.resgateDias, limite: '≥ ' + pct(min, 0) + ' em D+' + pol.resgateDias,
           msg: `Ao menos ${pct(min, 0)} do PL deve ser conversível dentro do prazo de cotização+liquidação (D+${pol.resgateDias}).` };
       } },
-    { id: 'lcr-d1', nome: 'Liquidez de curtíssimo prazo (D+1)', categoria: 'Liquidez', fonte: 'LCR interno',
-      evaluate: (P, pol) => ({ status: geq(P.liqCum(1), pol.lcrD1, AL), atual: pct(P.liqCum(1)) + ' em D+1', limite: '≥ ' + pct(pol.lcrD1),
-        msg: 'Colchão para honrar resgates de curtíssimo prazo.' }) },
-    { id: 'lcr-d5', nome: 'Liquidez de curto prazo (D+5)', categoria: 'Liquidez', fonte: 'LCR interno',
-      evaluate: (P, pol) => ({ status: geq(P.liqCum(5), pol.lcrD5, AL), atual: pct(P.liqCum(5)) + ' em D+5', limite: '≥ ' + pct(pol.lcrD5),
-        msg: 'Percentual liquidável em até 5 dias úteis.' }) },
+    { id: 'lcr-d1', nome: 'Liquidez de curtíssimo prazo', categoria: 'Liquidez', fonte: 'LCR interno',
+      evaluate: (P, pol) => { const d = pol.lcrD1Dias != null ? pol.lcrD1Dias : 1;
+        return { status: geq(P.liqCum(d), pol.lcrD1, AL), atual: pct(P.liqCum(d)) + ' em D+' + d, limite: '≥ ' + pct(pol.lcrD1),
+          msg: `Colchão liquidável em até D+${d} para resgates de curtíssimo prazo.` }; } },
+    { id: 'lcr-d5', nome: 'Liquidez de curto prazo', categoria: 'Liquidez', fonte: 'LCR interno',
+      evaluate: (P, pol) => { const d = pol.lcrD5Dias != null ? pol.lcrD5Dias : 5;
+        return { status: geq(P.liqCum(d), pol.lcrD5, AL), atual: pct(P.liqCum(d)) + ' em D+' + d, limite: '≥ ' + pct(pol.lcrD5),
+          msg: `Percentual liquidável em até D+${d}.` }; } },
     { id: 'caixa-min', nome: 'Caixa mínimo pós-trade', categoria: 'Liquidez', fonte: 'Colchão de liquidez',
       evaluate: (P, pol) => ({ status: geq(P.caixaPct, pol.caixaMin, AL), atual: pct(P.caixaPct) + ' em D+0', limite: '≥ ' + pct(pol.caixaMin),
         msg: 'Disponibilidades + ativos de liquidez imediata (D+0).' }) },

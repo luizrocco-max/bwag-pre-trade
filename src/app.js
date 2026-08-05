@@ -325,6 +325,7 @@
     };
     const idx = {
       nome: 0,
+      cnpj: find(/CNPJ/i, {}),
       ret12: find(/^Retorno$/i, { win: 1, notBench: 1 }),
       pctCDI: find(/Benchmark.*CDI|CDI/i, { win: 1, contains: /Benchmark/i }),
       vol: find(/Volatilidade/i, { win: 1 }),
@@ -340,7 +341,8 @@
     // 1ª linha de dados = primeira com nome não vazio após o cabeçalho
     let start = 1;
     for (let i = 1; i < aoa.length; i++) { const c0 = aoa[i][0]; if (c0 && String(c0).trim() && !/meses|at[ée]/i.test(String(c0))) { start = i; break; } }
-    const headers = ['Nome do Fundo', 'Retorno 12M', '% do CDI 12M', 'Volatilidade 12M', 'Máximo Drawdown 12M', 'VaR 12M', 'Índice de Sharpe', 'Patrimônio Líquido', 'Cotização de Resgate (D+)', 'Taxa de Administração', 'Taxa de Performance', 'Classificação Anbima'];
+    const temCnpj = idx.cnpj >= 0;
+    const headers = ['Nome do Fundo'].concat(temCnpj ? ['CNPJ'] : [], ['Retorno 12M', '% do CDI 12M', 'Volatilidade 12M', 'Máximo Drawdown 12M', 'VaR 12M', 'Índice de Sharpe', 'Patrimônio Líquido', 'Cotização de Resgate (D+)', 'Taxa de Administração', 'Taxa de Performance', 'Classificação Anbima']);
     const x100 = (v) => { const n = parseNumCell(v); return n == null ? null : Math.round(n * 10000) / 100; };
     const rows = [];
     for (let i = start; i < aoa.length; i++) {
@@ -348,12 +350,13 @@
       const g = (k) => idx[k] >= 0 ? r[idx[k]] : null;
       rows.push([
         String(r[0]).trim(),
+      ].concat(temCnpj ? [g('cnpj') != null ? String(g('cnpj')) : null] : [], [
         x100(g('ret12')), x100(g('pctCDI')), x100(g('vol')), x100(g('dd')), x100(g('var')),
         (parseNumCell(g('sharpe'))), parseNumCell(g('pl')),
         g('cot') != null ? String(g('cot')).replace(/\s*du\s*$/i, '').trim() : null,
         x100(g('adm')), (typeof g('perf') === 'number' ? x100(g('perf')) : (g('perf') || null)),
         g('classe') != null ? String(g('classe')) : null,
-      ]);
+      ]));
     }
     return { headers, rows, janela: '12 meses' };
   }
@@ -443,6 +446,15 @@
     }
     html += `</tbody></table></div>
       <hr class="divider-rule">
+      <div class="section-title">Tipificação da classe</div>
+      <div class="form-grid">
+        <div class="field"><label>Fator de risco (piso da classe)</label>
+          <select class="select" data-pol-txt="tipificacaoClasse">
+            ${['', 'Renda Variável', 'Renda Fixa', 'Moeda', 'Retorno Absoluto'].map(o => `<option value="${o}" ${(pol.tipificacaoClasse || '') === o ? 'selected' : ''}>${o || 'Sem piso (Multimercado)'}</option>`).join('')}
+          </select><div class="hint">Classe que deve manter o piso (ex.: Ações → Renda Variável).</div></div>
+        ${numField('tipificacaoMin', 'Piso da tipificação (%)', pol.tipificacaoMin)}
+      </div>
+      <hr class="divider-rule">
       <div class="section-title">Limites de concentração, liquidez e risco</div>
       <div class="form-grid">
         ${numField('limiteEmissor', 'Limite por emissor (%)', pol.limiteEmissor)}
@@ -454,8 +466,10 @@
         ${numField('minPosicoes', 'Mín. de posições', pol.minPosicoes, 1)}
         ${numField('resgateDias', 'Prazo de resgate (D+)', pol.resgateDias, 1)}
         ${numField('liqResgateMin', 'Liquidez mín. no resgate (%)', pol.liqResgateMin != null ? pol.liqResgateMin : 90)}
-        ${numField('lcrD1', 'Liquidez mín. D+1 (%)', pol.lcrD1)}
-        ${numField('lcrD5', 'Liquidez mín. D+5 (%)', pol.lcrD5)}
+        ${numField('lcrD1Dias', 'Janela LCR curtíssimo (D+)', pol.lcrD1Dias != null ? pol.lcrD1Dias : 1, 1)}
+        ${numField('lcrD1', 'Liquidez mín. curtíssimo (%)', pol.lcrD1)}
+        ${numField('lcrD5Dias', 'Janela LCR curto (D+)', pol.lcrD5Dias != null ? pol.lcrD5Dias : 5, 1)}
+        ${numField('lcrD5', 'Liquidez mín. curto (%)', pol.lcrD5)}
         ${numField('caixaMin', 'Caixa mínimo (%)', pol.caixaMin)}
         ${numField('creditoMax', 'Crédito privado máx. (%)', pol.creditoMax)}
         ${numField('volMax', 'Volatilidade máx. (% a.a.)', pol.volMax)}
@@ -888,6 +902,7 @@
     else if (t.id === 'pt-cenario') { STATE.cenarioAtivo[fundo().header.fundo] = t.value; rerenderActive(); }
     else if (t.dataset && t.dataset.chk) { const f = fundo(); (STATE.checklist[f.header.fundo] = STATE.checklist[f.header.fundo] || {})[t.dataset.chk] = t.checked; persist(); renderPretrade(); }
     else if (t.dataset && t.dataset.pol) { const v = parseFloat(String(t.value).replace(',', '.')); if (!isNaN(v)) policy()[t.dataset.pol] = v; persist(); }
+    else if (t.dataset && t.dataset.polTxt) { policy()[t.dataset.polTxt] = t.value || null; persist(); rerenderActive(); }
     else if (t.dataset && t.dataset.band != null) { const v = parseFloat(String(t.value).replace(',', '.')); if (!isNaN(v)) policy().bandas[t.dataset.band][+t.dataset.edge] = v; persist(); }
   });
 
