@@ -75,7 +75,10 @@ ${body}
 </body>
 </html>`;
 writeFileSync(join(ROOT, 'dashboard.html'), full);
+// Saída 3 — index.html (raiz do GitHub Pages: a URL base abre o dashboard).
+writeFileSync(join(ROOT, 'index.html'), full);
 
 const kb = (s) => Math.round(Buffer.byteLength(s) / 1024);
 console.log(`✓ dashboard.html      ${kb(full)} KB`);
+console.log(`✓ index.html          ${kb(full)} KB  (GitHub Pages)`);
 console.log(`✓ dist/artifact.html  ${kb(body)} KB`);
