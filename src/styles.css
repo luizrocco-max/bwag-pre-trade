@@ -344,6 +344,25 @@ input[type=range] { width: 100%; accent-color: var(--purple); }
 /* editable review grid caption */
 .review-hint { background: var(--warm-gray); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 14px; font-size: 12.5px; color: var(--text-light); margin-bottom: 14px; }
 
+/* help "?" badge + tooltip */
+.help {
+  display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 50%;
+  background: var(--cool-gray); color: var(--text-light); border: 1px solid var(--rule);
+  font-size: 10px; font-weight: 800; cursor: help; margin-left: 6px; vertical-align: middle;
+  font-family: var(--sans); line-height: 1; user-select: none; transition: all .12s ease;
+}
+.help:hover, .help:focus-visible { background: var(--purple); color: #fff; border-color: var(--purple); outline: none; }
+.step .help, .btn .help { margin-left: 5px; }
+.btn .help { background: rgba(255,255,255,.22); color: #fff; border-color: transparent; }
+.btn-outline .help { background: var(--cool-gray); color: var(--text-light); border-color: var(--rule); }
+#tooltip {
+  position: fixed; display: none; z-index: 1000; max-width: 300px;
+  background: var(--navy); color: #fff; padding: 9px 12px; border-radius: 9px;
+  font-family: var(--sans); font-size: 12.5px; font-weight: 400; line-height: 1.45;
+  box-shadow: var(--shadow-lg); pointer-events: none; text-align: left;
+}
+#tooltip b { color: #fff; }
+
 /* tab content */
 .view { display: none; }
 .view.active { display: block; animation: fade .2s ease; }

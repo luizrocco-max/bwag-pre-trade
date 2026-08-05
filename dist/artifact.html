@@ -345,6 +345,25 @@ input[type=range] { width: 100%; accent-color: var(--purple); }
 /* editable review grid caption */
 .review-hint { background: var(--warm-gray); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 14px; font-size: 12.5px; color: var(--text-light); margin-bottom: 14px; }
 
+/* help "?" badge + tooltip */
+.help {
+  display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 50%;
+  background: var(--cool-gray); color: var(--text-light); border: 1px solid var(--rule);
+  font-size: 10px; font-weight: 800; cursor: help; margin-left: 6px; vertical-align: middle;
+  font-family: var(--sans); line-height: 1; user-select: none; transition: all .12s ease;
+}
+.help:hover, .help:focus-visible { background: var(--purple); color: #fff; border-color: var(--purple); outline: none; }
+.step .help, .btn .help { margin-left: 5px; }
+.btn .help { background: rgba(255,255,255,.22); color: #fff; border-color: transparent; }
+.btn-outline .help { background: var(--cool-gray); color: var(--text-light); border-color: var(--rule); }
+#tooltip {
+  position: fixed; display: none; z-index: 1000; max-width: 300px;
+  background: var(--navy); color: #fff; padding: 9px 12px; border-radius: 9px;
+  font-family: var(--sans); font-size: 12.5px; font-weight: 400; line-height: 1.45;
+  box-shadow: var(--shadow-lg); pointer-events: none; text-align: left;
+}
+#tooltip b { color: #fff; }
+
 /* tab content */
 .view { display: none; }
 .view.active { display: block; animation: fade .2s ease; }
@@ -1244,6 +1263,28 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
     setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, 3400);
   }
 
+  // ---------------------------------------------------------- ajuda ("?")
+  const help = (txt) => `<span class="help" tabindex="0" role="note" aria-label="ajuda" data-tip="${esc(txt)}">?</span>`;
+  let tipEl = null;
+  function setupTooltip() {
+    tipEl = document.createElement('div'); tipEl.id = 'tooltip'; document.body.appendChild(tipEl);
+    const show = (el) => {
+      const txt = el.getAttribute('data-tip'); if (!txt) return;
+      tipEl.textContent = txt; tipEl.style.display = 'block';
+      const r = el.getBoundingClientRect(), tw = tipEl.offsetWidth, th = tipEl.offsetHeight;
+      let left = r.left + r.width / 2 - tw / 2;
+      left = Math.max(8, Math.min(left, window.innerWidth - tw - 8));
+      let top = r.bottom + 8; if (top + th > window.innerHeight - 8) top = r.top - th - 8;
+      tipEl.style.left = left + 'px'; tipEl.style.top = Math.max(8, top) + 'px';
+    };
+    const hide = () => { if (tipEl) tipEl.style.display = 'none'; };
+    document.addEventListener('mouseover', e => { const h = e.target.closest && e.target.closest('.help[data-tip]'); if (h) show(h); });
+    document.addEventListener('mouseout', e => { const h = e.target.closest && e.target.closest('.help[data-tip]'); if (h) hide(); });
+    document.addEventListener('focusin', e => { const h = e.target.closest && e.target.closest('.help[data-tip]'); if (h) show(h); });
+    document.addEventListener('focusout', hide);
+    document.addEventListener('scroll', hide, true);
+  }
+
   // ------------------------------------------------------------- estado
   const STATE = {
     fundos: [], fundoAtivo: null,
@@ -1328,7 +1369,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
   function renderInput() {
     const f = fundo();
     let html = `<div class="panel"><div class="panel-head">
-      <div class="ph-text"><h2>Posição dos fundos</h2><p>Importe o <b>Relatório de Performance Diário (BTG)</b> ou a <b>Carteira Diária (Bradesco)</b>. O formato é detectado automaticamente.</p></div>
+      <div class="ph-text"><h2>Posição dos fundos${help('Arraste os PDFs dos fundos. O app detecta se é BTG (Relatório de Performance Diário/AcompFI) ou Bradesco (Carteira Diária) e extrai carteira, alocação por classe, concentração e liquidez. Você pode carregar vários fundos de uma vez.')}</h2><p>Importe o <b>Relatório de Performance Diário (BTG)</b> ou a <b>Carteira Diária (Bradesco)</b>. O formato é detectado automaticamente.</p></div>
       <div class="ph-actions">
         <button class="btn btn-outline btn-sm" id="btn-exemplo">Carregar exemplo</button>
         <label class="btn btn-primary btn-sm">Importar PDF<input type="file" id="file-pdf" accept="application/pdf,.pdf" multiple hidden></label>
@@ -1371,15 +1412,15 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
     // Alocação por classe
     const classes = Object.entries(P.porClasse).sort((a, b) => b[1] - a[1]);
     html += `<div class="cols-2">
-      <div class="panel"><div class="panel-head"><div class="ph-text"><h2>Alocação por classe</h2><p>Distribuição do PL entre classes de ativo</p></div></div>
+      <div class="panel"><div class="panel-head"><div class="ph-text"><h2>Alocação por classe${help('Quanto do PL está em cada classe de ativo (Renda Variável, Renda Fixa, etc.). É a base do teste de bandas e da tipificação do fundo.')}</h2><p>Distribuição do PL entre classes de ativo</p></div></div>
         <div class="panel-body">${allocBar(classes)}</div></div>
-      <div class="panel"><div class="panel-head"><div class="ph-text"><h2>Concentração por emissor/gestor</h2><p>Maiores posições agregadas por emissor</p></div></div>
+      <div class="panel"><div class="panel-head"><div class="ph-text"><h2>Concentração por emissor/gestor${help('Soma do %PL por emissor/gestor. A barra mostra o quanto de cada limite está usado; em vermelho quando ultrapassa o limite por emissor da Política.')}</h2><p>Maiores posições agregadas por emissor</p></div></div>
         <div class="panel-body tight">${concTable(f.concentracao && f.concentracao.length ? f.concentracao : Object.entries(P.porEmissor).map(([nome, pct]) => ({ nome, pct })).sort((a, b) => b.pct - a.pct).slice(0, 15), pol.limiteEmissor)}</div></div>
     </div>`;
 
     // Liquidez + carteira
     if (f.liquidez && f.liquidez.length) {
-      html += `<div class="panel"><div class="panel-head"><div class="ph-text"><h2>Escada de liquidez</h2><p>Conversibilidade do PL por faixa de prazo (fonte: relatório BTG)</p></div></div>
+      html += `<div class="panel"><div class="panel-head"><div class="ph-text"><h2>Escada de liquidez${help('Quanto do PL é conversível em cada faixa de prazo (D+0, D+1, D+2 a D+15…). É a base dos testes de liquidez × prazo de resgate e dos colchões de curto prazo.')}</h2><p>Conversibilidade do PL por faixa de prazo (fonte: relatório BTG)</p></div></div>
         <div class="panel-body tight">${liqTable(f.liquidez)}</div></div>`;
     } else {
       html += `<div class="panel"><div class="panel-body"><div class="notice notice-info"><span class="n-ico">ℹ</span>
@@ -1433,7 +1474,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
   // ============================================================ 2. QUANTUM
   function renderQuantum() {
     let html = `<div class="panel"><div class="panel-head"><div class="ph-text">
-      <h2>Métricas — Quantum Axis</h2><p>Importe a planilha exportada do Quantum Axis com as métricas dos fundos/ativos candidatos. As colunas são reconhecidas automaticamente.</p></div>
+      <h2>Métricas — Quantum Axis${help('Importe a planilha exportada do Quantum Axis. O app reconhece o cabeçalho agrupado, usa a janela de 12 meses e converte os valores para %. As métricas casam com os ativos da carteira pelo nome e alimentam as regras de risco e liquidez.')}</h2><p>Importe a planilha exportada do Quantum Axis com as métricas dos fundos/ativos candidatos. As colunas são reconhecidas automaticamente.</p></div>
       <div class="ph-actions">
         <button class="btn btn-ghost btn-sm" id="q-modelo">Baixar modelo (CSV)</button>
         <button class="btn btn-outline btn-sm" id="q-exemplo">Exemplo</button>
@@ -1635,8 +1676,8 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
       <div class="ph-actions"><button class="btn btn-ghost btn-sm" id="pol-reset">Restaurar preset</button></div></div>
       <div class="panel-body">
       <div class="form-grid">
-        <div class="field"><label>Classe / preset</label><select class="select" id="pol-preset">${presets}</select><div class="hint">Define pisos de tipificação e limites-base.</div></div>
-        <div class="field"><label>Público-alvo</label><div class="segmented" id="pol-pub">${pub}</div><div class="hint">Teto de exterior: varejo 20% · qualificado 40% · profissional 100%.</div></div>
+        <div class="field"><label>Classe / preset${help('Modelo de limites e pisos por classe de fundo, com os defaults da CVM 175. É o ponto de partida — ajuste cada campo conforme o regulamento do fundo.')}</label><select class="select" id="pol-preset">${presets}</select><div class="hint">Define pisos de tipificação e limites-base.</div></div>
+        <div class="field"><label>Público-alvo${help('Público-alvo do veículo. Define o teto de exposição a ativos no exterior: varejo 20% · qualificado 40% · profissional 100% do PL (CVM 175).')}</label><div class="segmented" id="pol-pub">${pub}</div><div class="hint">Teto de exterior: varejo 20% · qualificado 40% · profissional 100%.</div></div>
       </div>
       <hr class="divider-rule">
       <div class="section-title">Bandas de alocação por classe (mín / máx do PL)</div>
@@ -1651,36 +1692,36 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
       <hr class="divider-rule">
       <div class="section-title">Tipificação da classe</div>
       <div class="form-grid">
-        <div class="field"><label>Fator de risco (piso da classe)</label>
+        <div class="field"><label>Fator de risco (piso da classe)${help('Classe cujo piso a regulação exige manter. Ex.: fundo de Ações precisa de ≥67% em Renda Variável; RF ≥80%; Cambial ≥80%. Multimercado não tem piso obrigatório.')}</label>
           <select class="select" data-pol-txt="tipificacaoClasse">
             ${['', 'Renda Variável', 'Renda Fixa', 'Moeda', 'Retorno Absoluto'].map(o => `<option value="${o}" ${(pol.tipificacaoClasse || '') === o ? 'selected' : ''}>${o || 'Sem piso (Multimercado)'}</option>`).join('')}
           </select><div class="hint">Classe que deve manter o piso (ex.: Ações → Renda Variável).</div></div>
-        ${numField('tipificacaoMin', 'Piso da tipificação (%)', pol.tipificacaoMin)}
+        ${numField('tipificacaoMin', 'Piso da tipificação (%)', pol.tipificacaoMin, 1, 'Percentual mínimo do PL na classe do fator de risco que dá nome ao fundo (CVM 175). Ex.: Ações 67%, RF 80%.')}
       </div>
       <hr class="divider-rule">
       <div class="section-title">Limites de concentração, liquidez e risco</div>
       <div class="form-grid">
-        ${numField('limiteEmissor', 'Limite por emissor (%)', pol.limiteEmissor)}
-        ${numField('limiteGrupo', 'Limite por grupo econômico (%)', pol.limiteGrupo)}
-        ${numField('maxAtivo', 'Máx. por ativo (%)', pol.maxAtivo)}
-        ${numField('top5', 'Máx. Top-5 (%)', pol.top5)}
-        ${numField('top10', 'Máx. Top-10 (%)', pol.top10)}
-        ${numField('hhiMax', 'HHI máximo', pol.hhiMax, 0.01)}
-        ${numField('minPosicoes', 'Mín. de posições', pol.minPosicoes, 1)}
-        ${numField('resgateDias', 'Prazo de resgate (D+)', pol.resgateDias, 1)}
-        ${numField('liqResgateMin', 'Liquidez mín. no resgate (%)', pol.liqResgateMin != null ? pol.liqResgateMin : 90)}
-        ${numField('lcrD1Dias', 'Janela LCR curtíssimo (D+)', pol.lcrD1Dias != null ? pol.lcrD1Dias : 1, 1)}
-        ${numField('lcrD1', 'Liquidez mín. curtíssimo (%)', pol.lcrD1)}
-        ${numField('lcrD5Dias', 'Janela LCR curto (D+)', pol.lcrD5Dias != null ? pol.lcrD5Dias : 5, 1)}
-        ${numField('lcrD5', 'Liquidez mín. curto (%)', pol.lcrD5)}
-        ${numField('caixaMin', 'Caixa mínimo (%)', pol.caixaMin)}
-        ${numField('creditoMax', 'Crédito privado máx. (%)', pol.creditoMax)}
-        ${numField('volMax', 'Volatilidade máx. (% a.a.)', pol.volMax)}
-        ${numField('varMax', 'VaR 1d 95% máx. (%)', pol.varMax, 0.1)}
+        ${numField('limiteEmissor', 'Limite por emissor (%)', pol.limiteEmissor, 1, 'Máximo do PL por emissor. CVM 175 art. 44: instituição financeira 20% · companhia aberta/fundo 10% · PF/PJ 5%. Ajuste ao tipo do maior emissor.')}
+        ${numField('limiteGrupo', 'Limite por grupo econômico (%)', pol.limiteGrupo, 1, 'Máximo do PL somando todos os emissores do mesmo grupo econômico. Captura risco de contraparte correlacionado.')}
+        ${numField('maxAtivo', 'Máx. por ativo (%)', pol.maxAtivo, 1, 'Máximo do PL em um único ativo (risco idiossincrático / single-line).')}
+        ${numField('top5', 'Máx. Top-5 (%)', pol.top5, 1, 'Soma máxima dos 5 maiores ativos. Mede o grau de pulverização da carteira.')}
+        ${numField('top10', 'Máx. Top-10 (%)', pol.top10, 1, 'Soma máxima dos 10 maiores ativos.')}
+        ${numField('hhiMax', 'HHI máximo', pol.hhiMax, 0.01, 'Índice de Herfindahl-Hirschman = Σ (pesoᵢ)². Quanto menor, mais pulverizada a carteira. Nº efetivo de posições = 1/HHI.')}
+        ${numField('minPosicoes', 'Mín. de posições', pol.minPosicoes, 1, 'Número mínimo de ativos com peso relevante (≥ 0,5% do PL).')}
+        ${numField('resgateDias', 'Prazo de resgate (D+)', pol.resgateDias, 1, 'Prazo total do resgate do fundo = cotização + liquidação (D+N). Define a janela do teste de liquidez principal.')}
+        ${numField('liqResgateMin', 'Liquidez mín. no resgate (%)', pol.liqResgateMin != null ? pol.liqResgateMin : 90, 1, 'Percentual mínimo do PL que precisa ser conversível dentro do prazo de resgate. Regra bloqueante.')}
+        ${numField('lcrD1Dias', 'Janela LCR curtíssimo (D+)', pol.lcrD1Dias != null ? pol.lcrD1Dias : 1, 1, 'Horizonte (em dias) do colchão de curtíssimo prazo. Padrão D+1.')}
+        ${numField('lcrD1', 'Liquidez mín. curtíssimo (%)', pol.lcrD1, 1, 'Piso do PL liquidável dentro da janela de curtíssimo prazo.')}
+        ${numField('lcrD5Dias', 'Janela LCR curto (D+)', pol.lcrD5Dias != null ? pol.lcrD5Dias : 5, 1, 'Horizonte (em dias) do colchão de curto prazo. Padrão D+5.')}
+        ${numField('lcrD5', 'Liquidez mín. curto (%)', pol.lcrD5, 1, 'Piso do PL liquidável dentro da janela de curto prazo.')}
+        ${numField('caixaMin', 'Caixa mínimo (%)', pol.caixaMin, 1, 'Piso de caixa e ativos de liquidez imediata (D+0) após o trade.')}
+        ${numField('creditoMax', 'Crédito privado máx. (%)', pol.creditoMax, 1, 'Máximo do PL em crédito privado. Acima de 50% o fundo precisa do sufixo "Crédito Privado" e público qualificado (CVM 175).')}
+        ${numField('volMax', 'Volatilidade máx. (% a.a.)', pol.volMax, 1, 'Volatilidade anualizada máxima da carteira, estimada com as vols do Quantum Axis (média ponderada, sem correlação).')}
+        ${numField('varMax', 'VaR 1d 95% máx. (%)', pol.varMax, 0.1, 'Perda potencial máxima em 1 dia a 95% de confiança (% do PL), estimada a partir da volatilidade.')}
       </div></div></div>`;
     $('#view-politica').innerHTML = html;
   }
-  const numField = (key, label, val, step) => `<div class="field"><label>${label}</label><input class="input" type="number" step="${step || 1}" data-pol="${key}" value="${val}"></div>`;
+  const numField = (key, label, val, step, tip) => `<div class="field"><label>${label}${tip ? help(tip) : ''}</label><input class="input" type="number" step="${step || 1}" data-pol="${key}" value="${val}"></div>`;
 
   // ============================================================ 4. CENÁRIOS
   function mapAnbimaClasse(s) {
@@ -1714,13 +1755,13 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
     const f = fundo();
     if (!f) return emptyView('view-cenarios', 'Importe um fundo para montar cenários de alocação.');
     const cs = cenarios(); const cur = cenarioAtual(); const pol = policy();
-    let html = `<div class="panel"><div class="panel-head"><div class="ph-text"><h2>Proxy de alocação — cenários</h2>
+    let html = `<div class="panel"><div class="panel-head"><div class="ph-text"><h2>Proxy de alocação — cenários${help('Um cenário é uma proposta de carteira. Parta da posição atual, edite pesos, inclua ou exclua ativos, e compare o enquadramento de cada proposta antes de mandar a ordem. Os botões à direita criam cenários automáticos.')}</h2>
       <p>Monte alocações alternativas a partir da posição atual e compare o enquadramento de cada uma antes de negociar.</p></div>
       <div class="ph-actions">
-        <button class="btn btn-outline btn-sm" data-gen="concentracao">+ Reduzir concentração</button>
-        <button class="btn btn-outline btn-sm" data-gen="liquidez">+ Aumentar liquidez</button>
-        <button class="btn btn-outline btn-sm" data-gen="bandas">+ Enquadrar bandas</button>
-        <button class="btn btn-accent btn-sm" data-gen="custom">+ Cenário em branco</button>
+        <button class="btn btn-outline btn-sm" data-gen="concentracao">+ Reduzir concentração${help('Cria um cenário cortando os ativos acima do limite por ativo e redistribuindo o excesso para posições líquidas que ainda estão abaixo do teto.')}</button>
+        <button class="btn btn-outline btn-sm" data-gen="liquidez">+ Aumentar liquidez${help('Cria um cenário movendo parte dos ativos menos líquidos (acima do prazo de resgate) para os mais líquidos (até D+5).')}</button>
+        <button class="btn btn-outline btn-sm" data-gen="bandas">+ Enquadrar bandas${help('Cria um cenário aproximando cada classe do ponto médio da sua banda de alocação definida na Política.')}</button>
+        <button class="btn btn-accent btn-sm" data-gen="custom">+ Cenário em branco${help('Cria um cenário igual à posição atual, para você editar pesos e incluir/excluir ativos manualmente.')}</button>
       </div></div><div class="panel-body">
       <div class="row wrap" style="gap:8px">`;
     cs.forEach(c => {
@@ -1756,7 +1797,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
     }
 
     html += `<div class="cols-2">
-      <div class="panel"><div class="panel-head"><div class="ph-text"><h2>${esc(cur.nome)}</h2><p>Ajuste pesos, inclua ou exclua ativos. Total: <b id="cen-total" class="${Math.abs(totalTarget - 100) > 0.5 ? 'neg' : 'pos'}">${pf(totalTarget)}</b></p></div>
+      <div class="panel"><div class="panel-head"><div class="ph-text"><h2>${esc(cur.nome)}${cur.base ? '' : help('Digite o peso-alvo (%) de cada ativo. Use ⊘ para excluir um ativo existente (zera o peso) e ✕ para remover um ativo que você incluiu. "Normalizar 100%" reescala tudo para somar 100%.')}</h2><p>Ajuste pesos, inclua ou exclua ativos. Total: <b id="cen-total" class="${Math.abs(totalTarget - 100) > 0.5 ? 'neg' : 'pos'}">${pf(totalTarget)}</b></p></div>
         <div class="ph-actions">${cur.base ? '<span class="pill">posição atual (somente leitura)</span>' : '<button class="btn btn-ghost btn-sm" id="cen-normalizar">Normalizar 100%</button>'}</div></div>
         ${addBar}
         <div class="panel-body tight"><div class="table-wrap"><table class="data"><thead><tr><th>Ativo</th><th class="num">Atual</th><th class="num">Alvo %</th><th class="num">Δ</th>${cur.base ? '' : '<th></th>'}</tr></thead><tbody>`;
@@ -1773,7 +1814,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
 
     // KPIs comparativos + trade list
     html += `<div class="stack">
-      <div class="panel"><div class="panel-head"><div class="ph-text"><h2>Impacto do cenário</h2><p>Atual → proposto</p></div></div><div class="panel-body">
+      <div class="panel"><div class="panel-head"><div class="ph-text"><h2>Impacto do cenário${help('Como cada indicador muda da posição atual para o cenário proposto. Ajuda a ver se a proposta melhora ou piora concentração, liquidez e risco antes de negociar.')}</h2><p>Atual → proposto</p></div></div><div class="panel-body">
         ${cmpRow('Maior emissor', pf(P0.maiorEmissor[1]), pf(P1.maiorEmissor[1]))}
         ${cmpRow('Top-5', pf(P0.top5), pf(P1.top5))}
         ${cmpRow('Máx. ativo', pf(P0.maxAtivo), pf(P1.maxAtivo))}
@@ -1825,7 +1866,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
     const veredito = cf.bloqueio ? 'block' : (cf.alerta ? 'warn' : 'ok');
     const vtxt = cf.bloqueio ? `${cf.bloqueio} bloqueio(s) — não liberar` : (cf.alerta ? `${cf.alerta} alerta(s) — revisar` : 'Enquadrado — sem violações');
 
-    let html = `<div class="panel"><div class="panel-head"><div class="ph-text"><h2>Parecer de pré-trade</h2>
+    let html = `<div class="panel"><div class="panel-head"><div class="ph-text"><h2>Parecer de pré-trade${help('Roda todas as regras sobre o cenário escolhido. OK = conforme · Alerta = revisar (não impeditivo) · Bloqueio = viola limite duro, não liberar · Sem dados = falta insumo (ex.: métricas do Quantum). Troque o cenário no seletor ao lado.')}</h2>
       <p>${esc(f.header.fundo)} · cenário <b>${esc(cur.nome)}</b> · ${esc(Engine.PRESETS[pol.chave].rotulo)} · ${(pol.publicoAlvo || '').toLowerCase()}</p></div>
       <div class="ph-actions">
         <select class="select" id="pt-cenario" style="width:auto">${cenarios().map(c => `<option value="${c.id}" ${c.id === cur.id ? 'selected' : ''}>${esc(c.nome)}</option>`).join('')}</select>
@@ -1856,7 +1897,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
     }
 
     // checklist procedural
-    html += `<div class="panel"><div class="panel-head"><div class="ph-text"><h2>Checklist procedural</h2><p>Verificações que exigem atestação humana (contrato, suitability, KYC, melhor execução)</p></div></div><div class="panel-body tight">`;
+    html += `<div class="panel"><div class="panel-head"><div class="ph-text"><h2>Checklist procedural${help('Regras que não dá para calcular automaticamente — dependem de conferência humana e ficam registradas no parecer. Marque cada item ao confirmá-lo.')}</h2><p>Verificações que exigem atestação humana (contrato, suitability, KYC, melhor execução)</p></div></div><div class="panel-body tight">`;
     Engine.CHECKLIST.forEach(c => {
       const on = !!chk[c.id];
       html += `<div class="rule-row"><div class="r-status"><input type="checkbox" data-chk="${c.id}" ${on ? 'checked' : ''} style="width:20px;height:20px;accent-color:var(--purple)"></div>
@@ -2148,7 +2189,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
   }
 
   // ============================================================ INIT
-  function init() { setupPdfWorker(); restore(); renderStepper(); go('input'); }
+  function init() { setupPdfWorker(); setupTooltip(); restore(); renderStepper(); go('input'); }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();
 </script>
