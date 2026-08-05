@@ -16,3 +16,4 @@ npm-debug.log*
 # Artefatos de teste / build local
 /shot*.png
 /*.tmp
+/q*.png
