@@ -23,7 +23,9 @@ const r = (p) => readFileSync(join(ROOT, p), 'utf8');
 const b64 = (p) => readFileSync(join(ROOT, p)).toString('base64');
 
 // Impede que um literal "</script>" dentro do JS embutido feche a tag <script>.
-const safe = (js) => js.replace(/<\/script/gi, '<\\/script');
+// Também troca U+FFFD (presente nas tabelas de codepage do SheetJS, irrelevantes
+// para .xlsx/.csv) por "?", pois a publicação como Artifact rejeita U+FFFD.
+const safe = (js) => js.replace(/<\/script/gi, '<\\/script').replace(/�/g, '?');
 
 const styles      = r('src/styles.css');
 const template    = r('src/index.html');
