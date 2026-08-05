@@ -123,12 +123,12 @@
 
   // ---------------------------------------------------- índice do Quantum Axis
   const normNome = (s) => up(s).replace(/[^A-Z0-9 ]/g, ' ').replace(/\b(FIC|FIA|FIM|FI|FICFIM|FCFIA|FCFM|PCO|RF|CP|IE|SUB|GERAL|FUNDO|DE|DA|DO|INVESTIMENTO)\b/g, ' ').replace(/\s+/g, ' ').trim();
-  function casarQuantum(holding, quantumIndex) {
+  // casamento automático (por nome), ignorando o De-Para manual
+  function autoMatch(holding, quantumIndex) {
     if (!quantumIndex) return null;
     const key = normNome(holding.nome);
     if (!key) return null;
     if (quantumIndex.exact[key]) return quantumIndex.exact[key];
-    // melhor sobreposição de tokens
     const toks = new Set(key.split(' ').filter(t => t.length > 2));
     let best = null, bestScore = 0;
     for (const q of quantumIndex.list) {
@@ -138,6 +138,15 @@
       if (score > bestScore) { bestScore = score; best = q; }
     }
     return bestScore >= 0.6 ? best : null;
+  }
+  // casamento efetivo: respeita o De-Para manual (quantumIndex.overrides) e cai no automático
+  function casarQuantum(holding, quantumIndex) {
+    if (!quantumIndex) return null;
+    if (quantumIndex.overrides) {
+      const ov = quantumIndex.overrides[holding.nome];
+      if (ov !== undefined) return ov === '__none__' ? null : ((quantumIndex.byNome && quantumIndex.byNome[ov]) || null);
+    }
+    return autoMatch(holding, quantumIndex);
   }
 
   // ------------------------------------------------------------- perfil
@@ -324,5 +333,5 @@
   }
 
   return { PRESETS, PRESET_KEYS: Object.keys(PRESETS), EXTERIOR_TETO, presetPara, detectarClasse,
-    normalizarCarteira, perfil, avaliar, AUTO_RULES, CHECKLIST, casarQuantum, normNome, baseISO };
+    normalizarCarteira, perfil, avaliar, AUTO_RULES, CHECKLIST, casarQuantum, autoMatch, normNome, baseISO };
 });

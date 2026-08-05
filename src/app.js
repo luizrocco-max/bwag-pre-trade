@@ -100,14 +100,15 @@
     cenarios: {},           // fundoAtivo -> [ {id, nome, pesos, base} ]
     cenarioAtivo: {},       // fundoAtivo -> cenarioId
     checklist: {},          // fundoAtivo -> {ruleId: bool}
+    depara: {},             // nome do ativo (relatório) -> nome no Quantum ('__none__' = não casar)
     view: 'input',
   };
   const LS = 'bwag_pretrade_v1';
   function persist() {
-    try { localStorage.setItem(LS, JSON.stringify({ politicas: STATE.politicas, checklist: STATE.checklist })); } catch (e) {}
+    try { localStorage.setItem(LS, JSON.stringify({ politicas: STATE.politicas, checklist: STATE.checklist, depara: STATE.depara })); } catch (e) {}
   }
   function restore() {
-    try { const d = JSON.parse(localStorage.getItem(LS) || '{}'); if (d.politicas) STATE.politicas = d.politicas; if (d.checklist) STATE.checklist = d.checklist; } catch (e) {}
+    try { const d = JSON.parse(localStorage.getItem(LS) || '{}'); if (d.politicas) STATE.politicas = d.politicas; if (d.checklist) STATE.checklist = d.checklist; if (d.depara) STATE.depara = d.depara; } catch (e) {}
   }
 
   const fundo = () => STATE.fundos.find(f => f.header.fundo === STATE.fundoAtivo) || null;
@@ -296,7 +297,9 @@
         <div><b>${q.rows.length}</b> ativos importados · <b>${Object.values(q.cols).filter(Boolean).length}</b> métricas reconhecidas.
         ${fundo() ? 'Cobertura na carteira do fundo ativo: <b>' + coberturaQuantum() + '</b>.' : 'Selecione um fundo para casar as métricas.'}</div></div>`;
       html += mappingTable(q);
-      html += quantumTable(q);
+      html += `</div></div>`;
+      if (fundo()) html += deparaPanel(fundo());
+      html += `<div class="panel"><div class="panel-head"><div class="ph-text"><h2>Ativos importados${help('Prévia das métricas lidas do Quantum, já convertidas para % na janela de 12 meses.')}</h2></div></div><div class="panel-body tight">` + quantumTable(q);
     }
     html += `</div></div>`;
     $('#view-quantum').innerHTML = html;
@@ -412,7 +415,7 @@
     return { headers, rows, janela: '12 meses' };
   }
   function buildQuantumIndex(rows, cols) {
-    const list = [], exact = {};
+    const list = [], exact = {}, byNome = {};
     for (const r of rows) {
       const nome = cols.nome != null ? r[cols.nome] : null;
       if (!nome) continue;
@@ -429,9 +432,9 @@
         classe: cols.classe != null ? r[cols.classe] : null,
       };
       o.__toks = new Set(Engine.normNome(nome).split(' ').filter(t => t.length > 2));
-      list.push(o); exact[Engine.normNome(nome)] = o;
+      list.push(o); exact[Engine.normNome(nome)] = o; byNome[nome] = o;
     }
-    return { list, exact };
+    return { list, exact, byNome, overrides: STATE.depara || {} };
   }
   function coberturaQuantum() {
     const f = fundo(); if (!f || !STATE.quantum) return '—';
@@ -439,6 +442,29 @@
     let hit = 0;
     for (const h of norm) if (Engine.casarQuantum(h, STATE.quantum.index)) hit++;
     return pf(norm.length ? hit / norm.length * 100 : 0, 0) + ' (' + hit + '/' + norm.length + ')';
+  }
+  function deparaPanel(f) {
+    const norm = Engine.normalizarCarteira(f);
+    const qnames = STATE.quantum.index.list.map(q => q.nome).slice().sort((a, b) => a.localeCompare(b));
+    let h = `<div class="panel"><div class="panel-head"><div class="ph-text"><h2>Casamento De-Para${help('Liga cada ativo da carteira ao fundo correspondente no Quantum. O app tenta casar pelo nome; onde ficar errado ou vazio, escolha o fundo certo no seletor. Fica salvo por ativo e vale para todos os fundos.')}</h2><p>${esc(f.header.fundo)} · ajuste os casamentos que ficaram errados ou em branco</p></div>
+      <div class="ph-actions"><span class="pill">Cobertura ${coberturaQuantum()}</span></div></div>
+      <div class="panel-body tight"><div class="table-wrap"><table class="data"><thead><tr><th>Ativo da carteira</th><th style="width:44%">Casou com (Quantum Axis)</th><th>Origem</th></tr></thead><tbody>`;
+    norm.forEach(hd => {
+      const auto = Engine.autoMatch(hd, STATE.quantum.index);
+      const manual = STATE.depara[hd.nome];
+      const eff = Engine.casarQuantum(hd, STATE.quantum.index);
+      const origem = manual !== undefined
+        ? (manual === '__none__' ? '<span class="match-none">não casar</span>' : '<span class="match-manual">manual</span>')
+        : (auto ? '<span class="match-auto">automático</span>' : '<span class="match-none">sem match</span>');
+      h += `<tr><td><b>${esc(hd.nome)}</b><div class="small muted">${esc(hd.classe)} · D+${hd.liqDias}</div></td>
+        <td><select class="depara-sel${manual !== undefined ? ' manual' : ''}" data-depara="${esc(hd.nome)}">
+          <option value="">— automático${auto ? ': ' + esc(auto.nome) : ' (nenhum)'}</option>
+          <option value="__none__" ${manual === '__none__' ? 'selected' : ''}>✕ Não casar</option>
+          ${qnames.map(n => `<option value="${esc(n)}" ${(manual !== undefined && manual !== '__none__' && manual === n) ? 'selected' : ''}>${esc(n)}</option>`).join('')}
+        </select></td>
+        <td>${origem}${eff ? `<div class="small muted">vol ${eff.vol != null ? nf(eff.vol, 1) + '%' : '—'} · cotiz. ${esc(eff.cotResg || '—')}</div>` : ''}</td></tr>`;
+    });
+    return h + `</tbody></table></div></div></div>`;
   }
   function mappingTable(q) {
     const labels = { nome: 'Nome', cnpj: 'CNPJ', vol: 'Volatilidade', ret12: 'Retorno 12m', sharpe: 'Sharpe', var: 'VaR', taxaAdm: 'Taxa adm.', cotResg: 'Cotização resg.', classe: 'Classe ANBIMA' };
@@ -478,28 +504,42 @@
     Engine.perfil(f, null, null, pol); const P = Engine.perfil(f, null, null, pol);
     for (const c of Object.keys(P.porClasse)) if (!pol.bandas[c]) pol.bandas[c] = [0, 100];
 
+    // --- detecção de alterações vs. preset CVM 175 ---
+    const defP = Engine.PRESETS[pol.chave] || {};
+    const defExtra = { liqResgateMin: 90, lcrD1Dias: 1, lcrD5Dias: 5 };
+    const dof = (k) => defP[k] != null ? defP[k] : defExtra[k];
+    polChanged = {};
+    ['limiteEmissor', 'limiteGrupo', 'maxAtivo', 'top5', 'top10', 'hhiMax', 'minPosicoes', 'resgateDias', 'liqResgateMin', 'lcrD1Dias', 'lcrD1', 'lcrD5Dias', 'lcrD5', 'caixaMin', 'creditoMax', 'volMax', 'varMax', 'tipificacaoMin'].forEach(k => { const d = dof(k); if (d != null && String(pol[k]) !== String(d)) polChanged[k] = true; });
+    const pubChg = (pol.publicoAlvo || 'QUALIFICADO') !== 'QUALIFICADO';
+    const tipChg = (pol.tipificacaoClasse || '') !== (defP.tipificacaoClasse || '');
+    const bandChg = {};
+    Object.entries(pol.bandas || {}).forEach(([c, b]) => { const db = (defP.bandas || {})[c]; if (!db || +db[0] !== +b[0] || +db[1] !== +b[1]) bandChg[c] = true; });
+    const nAlt = Object.keys(polChanged).length + (pubChg ? 1 : 0) + (tipChg ? 1 : 0) + Object.keys(bandChg).length;
+
     let html = `<div class="panel"><div class="panel-head"><div class="ph-text"><h2>Política de investimento & perfil</h2>
       <p>Parâmetros do mandato usados no enquadramento. Ajuste conforme o regulamento do fundo. Salvo automaticamente.</p></div>
       <div class="ph-actions"><button class="btn btn-ghost btn-sm" id="pol-reset">Restaurar preset</button></div></div>
       <div class="panel-body">
+      ${nAlt ? `<div class="notice notice-warn" style="margin-bottom:16px"><span class="n-ico">✎</span><div><b>${nAlt} parâmetro(s) alterado(s)</b> em relação ao padrão CVM 175 (${esc(Engine.PRESETS[pol.chave].rotulo)}). Os campos alterados aparecem destacados em âmbar. Use <b>Restaurar preset</b> para voltar aos defaults regulatórios.</div></div>`
+        : `<div class="notice notice-ok" style="margin-bottom:16px"><span class="n-ico">✓</span><div>Todos os parâmetros estão no <b>padrão CVM 175</b> (${esc(Engine.PRESETS[pol.chave].rotulo)}).</div></div>`}
       <div class="form-grid">
         <div class="field"><label>Classe / preset${help('Modelo de limites e pisos por classe de fundo, com os defaults da CVM 175. É o ponto de partida — ajuste cada campo conforme o regulamento do fundo.')}</label><select class="select" id="pol-preset">${presets}</select><div class="hint">Define pisos de tipificação e limites-base.</div></div>
-        <div class="field"><label>Público-alvo${help('Público-alvo do veículo. Define o teto de exposição a ativos no exterior: varejo 20% · qualificado 40% · profissional 100% do PL (CVM 175).')}</label><div class="segmented" id="pol-pub">${pub}</div><div class="hint">Teto de exterior: varejo 20% · qualificado 40% · profissional 100%.</div></div>
+        <div class="field"><label>Público-alvo${help('Público-alvo do veículo. Define o teto de exposição a ativos no exterior: varejo 20% · qualificado 40% · profissional 100% do PL (CVM 175).')}${pubChg ? '<span class="tag-alt">alterado</span>' : ''}</label><div class="segmented" id="pol-pub">${pub}</div><div class="hint">Teto de exterior: varejo 20% · qualificado 40% · profissional 100%.</div></div>
       </div>
       <hr class="divider-rule">
       <div class="section-title">Bandas de alocação por classe (mín / máx do PL)</div>
       <div class="table-wrap"><table class="data"><thead><tr><th>Classe</th><th class="num">Atual</th><th class="num">Mínimo %</th><th class="num">Máximo %</th></tr></thead><tbody>`;
     for (const [c, [mn, mx]] of Object.entries(pol.bandas)) {
       const atual = P.porClasse[c] || 0;
-      html += `<tr><td><b>${esc(c)}</b></td><td class="num">${pf(atual)}</td>
-        <td class="num"><input class="cell-input" data-band="${esc(c)}" data-edge="0" value="${mn}"></td>
-        <td class="num"><input class="cell-input" data-band="${esc(c)}" data-edge="1" value="${mx}"></td></tr>`;
+      html += `<tr><td><b>${esc(c)}</b>${bandChg[c] ? '<span class="tag-alt">alterado</span>' : ''}</td><td class="num">${pf(atual)}</td>
+        <td class="num"><input class="cell-input${bandChg[c] ? ' chg-inp' : ''}" data-band="${esc(c)}" data-edge="0" value="${mn}"></td>
+        <td class="num"><input class="cell-input${bandChg[c] ? ' chg-inp' : ''}" data-band="${esc(c)}" data-edge="1" value="${mx}"></td></tr>`;
     }
     html += `</tbody></table></div>
       <hr class="divider-rule">
       <div class="section-title">Tipificação da classe</div>
       <div class="form-grid">
-        <div class="field"><label>Fator de risco (piso da classe)${help('Classe cujo piso a regulação exige manter. Ex.: fundo de Ações precisa de ≥67% em Renda Variável; RF ≥80%; Cambial ≥80%. Multimercado não tem piso obrigatório.')}</label>
+        <div class="field"><label>Fator de risco (piso da classe)${help('Classe cujo piso a regulação exige manter. Ex.: fundo de Ações precisa de ≥67% em Renda Variável; RF ≥80%; Cambial ≥80%. Multimercado não tem piso obrigatório.')}${tipChg ? '<span class="tag-alt">alterado</span>' : ''}</label>
           <select class="select" data-pol-txt="tipificacaoClasse">
             ${['', 'Renda Variável', 'Renda Fixa', 'Moeda', 'Retorno Absoluto'].map(o => `<option value="${o}" ${(pol.tipificacaoClasse || '') === o ? 'selected' : ''}>${o || 'Sem piso (Multimercado)'}</option>`).join('')}
           </select><div class="hint">Classe que deve manter o piso (ex.: Ações → Renda Variável).</div></div>
@@ -528,7 +568,8 @@
       </div></div></div>`;
     $('#view-politica').innerHTML = html;
   }
-  const numField = (key, label, val, step, tip) => `<div class="field"><label>${label}${tip ? help(tip) : ''}</label><input class="input" type="number" step="${step || 1}" data-pol="${key}" value="${val}"></div>`;
+  let polChanged = {};
+  const numField = (key, label, val, step, tip) => `<div class="field ${polChanged[key] ? 'changed' : ''}"><label>${label}${tip ? help(tip) : ''}${polChanged[key] ? '<span class="tag-alt">alterado</span>' : ''}</label><input class="input" type="number" step="${step || 1}" data-pol="${key}" value="${val}"></div>`;
 
   // ============================================================ 4. CENÁRIOS
   function mapAnbimaClasse(s) {
@@ -663,6 +704,68 @@
   function cenarioPesos(c, f) {
     if (!c || c.base) return null;
     return c.pesos;
+  }
+
+  // ---------------------------------------------------- parecer (PDF BWAG)
+  function gerarParecer() {
+    const f = fundo(); if (!f) { toast('Importe um fundo primeiro', 'err'); return; }
+    const pol = policy(); const cur = cenarioAtual();
+    const R = runEngineActive(); const cf = R.resumo;
+    const chk = STATE.checklist[f.header.fundo] || {};
+    const logo = ($('.brand img') || {}).src || '';
+    const now = new Date();
+    const emitido = now.toLocaleDateString('pt-BR') + ' ' + now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const veredito = cf.bloqueio ? 'block' : (cf.alerta ? 'warn' : 'ok');
+    const vtxt = cf.bloqueio ? `${cf.bloqueio} bloqueio(s) — ordem não recomendada sem enquadramento`
+      : (cf.alerta ? `${cf.alerta} alerta(s) — revisar antes de negociar` : 'Enquadrado — sem violações automáticas');
+    const st = { ok: 'ok', alerta: 'warn', bloqueio: 'block', na: 'na' };
+    const stLbl = { ok: 'OK', alerta: 'Alerta', bloqueio: 'Bloqueio', na: 'Sem dados' };
+    // ordens do cenário
+    const norm = Engine.normalizarCarteira(f); const extra = cur.extra || [];
+    const allH = norm.concat(extra); const pl = f.header.patrimonio || 0;
+    const pesos = {}; allH.forEach(h => pesos[h.key] = cur.pesos && cur.pesos[h.key] != null ? cur.pesos[h.key] : h.pesoAtual);
+    const trades = allH.map(h => ({ nome: h.nome, novo: h.novo, d: pesos[h.key] - h.pesoAtual, rs: (pesos[h.key] - h.pesoAtual) / 100 * pl }))
+      .filter(t => Math.abs(t.d) > 0.01).sort((a, b) => Math.abs(b.rs) - Math.abs(a.rs));
+
+    let doc = `<div class="pr-doc">
+      <div class="pr-head"><img src="${logo}" alt="BWAG"><div class="pr-t"><h1>Parecer de Pré-Trade</h1><div class="pr-sub">Enquadramento pré-negociação · ANBIMA · CVM 175</div></div></div>`;
+    const meta = [
+      ['Fundo', f.header.fundo], ['Data-base da posição', f.header.cotaData || '—'],
+      ['Patrimônio líquido', moneyK(f.header.patrimonio)], ['Cenário avaliado', cur.nome],
+      ['Classe / mandato', Engine.PRESETS[pol.chave].rotulo], ['Público-alvo', pol.publicoAlvo || '—'],
+      ['Fonte da posição', f.formato === 'bradesco' ? 'Bradesco — Carteira Diária' : 'BTG — Relatório de Performance'],
+      ['Emitido em', emitido],
+    ];
+    doc += `<div class="pr-meta">${meta.map(([k, v]) => `<div class="pr-row"><span>${esc(k)}</span><b>${esc(String(v))}</b></div>`).join('')}</div>`;
+    doc += `<div class="pr-verdict ${veredito}"><b>${esc(vtxt)}.</b><br>${cf.ok} conforme · ${cf.alerta} alerta · ${cf.bloqueio} bloqueio · ${cf.na} sem dados.</div>`;
+    doc += `<div class="pr-section">Checagens automáticas de enquadramento</div>
+      <table class="pr"><thead><tr><th>Regra</th><th class="num">Apurado</th><th class="num">Limite</th><th>Status</th><th>Fonte</th></tr></thead><tbody>`;
+    R.resultados.forEach(r => {
+      doc += `<tr class="${st[r.status]}"><td><b>${esc(r.nome)}</b><br><span style="color:#6B6B6B">${esc(r.msg)}</span></td><td class="num">${esc(r.atual)}</td><td class="num">${esc(r.limite)}</td><td><span class="pr-tag ${st[r.status]}">${stLbl[r.status]}</span></td><td style="color:#9B9B9B">${esc(r.fonte)}</td></tr>`;
+    });
+    doc += `</tbody></table>`;
+    if (!cur.base && trades.length) {
+      doc += `<div class="pr-section">Ordens propostas — ${cur.nome}</div>
+        <table class="pr"><thead><tr><th>Ativo</th><th>Operação</th><th class="num">Δ %PL</th><th class="num">Financeiro (R$)</th></tr></thead><tbody>`;
+      trades.forEach(t => { const op = t.d > 0 ? (t.novo ? 'Incluir' : 'Compra') : 'Venda'; doc += `<tr><td>${esc(t.nome)}</td><td>${op}</td><td class="num">${t.d > 0 ? '+' : ''}${nf(t.d, 2)}%</td><td class="num">${nf(Math.abs(t.rs), 0)}</td></tr>`; });
+      doc += `</tbody></table>`;
+    }
+    doc += `<div class="pr-section">Checklist procedural</div><ul class="pr-check">`;
+    Engine.CHECKLIST.forEach(c => { const on = !!chk[c.id]; doc += `<li><span class="box">${on ? '✓' : ''}</span>${esc(c.nome)} <span style="color:#9B9B9B">— ${esc(c.fonte)}</span></li>`; });
+    doc += `</ul>`;
+    const params = [
+      ['Limite por emissor', pf(pol.limiteEmissor, 0)], ['Limite por grupo', pf(pol.limiteGrupo, 0)],
+      ['Máx. por ativo', pf(pol.maxAtivo, 0)], ['Top-5 / Top-10', pf(pol.top5, 0) + ' / ' + pf(pol.top10, 0)],
+      ['Exterior (teto)', pf(Engine.EXTERIOR_TETO[pol.publicoAlvo] || 100, 0)], ['Prazo de resgate', 'D+' + pol.resgateDias + ' · mín ' + pf(pol.liqResgateMin != null ? pol.liqResgateMin : 90, 0)],
+      ['Crédito privado (máx.)', pf(pol.creditoMax, 0)], ['Tipificação', pol.tipificacaoClasse ? pol.tipificacaoClasse + ' ≥ ' + pf(pol.tipificacaoMin, 0) : '—'],
+    ];
+    doc += `<div class="pr-section">Parâmetros aplicados</div><table class="pr"><tbody>` +
+      params.map(([k, v]) => `<tr><td style="width:26%;color:#6B6B6B">${esc(k)}</td><td style="width:24%"><b>${esc(v)}</b></td></tr>`).join('') + `</tbody></table>`;
+    doc += `<div class="pr-sign"><div class="s">Gestão de Recursos — responsável pela ordem<br><br>Nome · assinatura · data</div><div class="s">Compliance / Risco — validação do enquadramento<br><br>Nome · assinatura · data</div></div>`;
+    doc += `<div class="pr-disc"><b>BWAG</b> · Brazil Wealth Advisory Group · Uso interno · Confidencial. Documento de apoio à decisão de enquadramento pré-negociação, gerado a partir das posições e métricas importadas. Não substitui a análise formal de compliance nem o registro e a fundamentação da ordem. Os limites refletem os parâmetros configurados na política e os defaults da Resolução CVM 175 — confira sempre o regulamento vigente do fundo.</div></div>`;
+
+    $('#print-area').innerHTML = doc;
+    window.print();
   }
   function renderPretrade() {
     const f = fundo();
@@ -936,7 +1039,7 @@
     if (t.id === 'btn-exemplo') return carregarExemplo();
     if (t.id === 'q-exemplo') return carregarQuantumExemplo();
     if (t.id === 'q-modelo') return baixarModeloQuantum();
-    if (t.id === 'pt-print') return window.print();
+    if (t.id === 'pt-print') return gerarParecer();
     if (t.dataset.fundo) { STATE.fundoAtivo = t.dataset.fundo; renderStepper(); rerenderActive(); return; }
     if (t.dataset.del) { const cs = cenarios(); const i = cs.findIndex(c => c.id === t.dataset.del); if (i >= 0) cs.splice(i, 1); STATE.cenarioAtivo[fundo().header.fundo] = 'atual'; rerenderActive(); return; }
     if (t.dataset.cen) { STATE.cenarioAtivo[fundo().header.fundo] = t.dataset.cen; rerenderActive(); return; }
@@ -953,9 +1056,15 @@
     else if (t.id === 'pol-preset') { const f = fundo(); const keep = policy().publicoAlvo; const p = { chave: t.value, ...JSON.parse(JSON.stringify(Engine.PRESETS[t.value])) }; p.publicoAlvo = keep; STATE.politicas[f.header.fundo] = p; persist(); rerenderActive(); }
     else if (t.id === 'pt-cenario') { STATE.cenarioAtivo[fundo().header.fundo] = t.value; rerenderActive(); }
     else if (t.dataset && t.dataset.chk) { const f = fundo(); (STATE.checklist[f.header.fundo] = STATE.checklist[f.header.fundo] || {})[t.dataset.chk] = t.checked; persist(); renderPretrade(); }
-    else if (t.dataset && t.dataset.pol) { const v = parseFloat(String(t.value).replace(',', '.')); if (!isNaN(v)) policy()[t.dataset.pol] = v; persist(); }
+    else if (t.dataset && t.dataset.pol) { const v = parseFloat(String(t.value).replace(',', '.')); if (!isNaN(v)) policy()[t.dataset.pol] = v; persist(); setTimeout(rerenderActive, 0); }
     else if (t.dataset && t.dataset.polTxt) { policy()[t.dataset.polTxt] = t.value || null; persist(); rerenderActive(); }
-    else if (t.dataset && t.dataset.band != null) { const v = parseFloat(String(t.value).replace(',', '.')); if (!isNaN(v)) policy().bandas[t.dataset.band][+t.dataset.edge] = v; persist(); }
+    else if (t.dataset && t.dataset.depara != null) {
+      const v = t.value;
+      if (v === '') delete STATE.depara[t.dataset.depara]; else STATE.depara[t.dataset.depara] = v;
+      if (STATE.quantum) STATE.quantum.index.overrides = STATE.depara;
+      persist(); rerenderActive();
+    }
+    else if (t.dataset && t.dataset.band != null) { const v = parseFloat(String(t.value).replace(',', '.')); if (!isNaN(v)) policy().bandas[t.dataset.band][+t.dataset.edge] = v; persist(); setTimeout(rerenderActive, 0); }
   });
 
   // edição de pesos do cenário (input em tempo real)
