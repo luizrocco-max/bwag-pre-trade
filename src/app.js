@@ -105,10 +105,28 @@
   };
   const LS = 'bwag_pretrade_v1';
   function persist() {
-    try { localStorage.setItem(LS, JSON.stringify({ politicas: STATE.politicas, checklist: STATE.checklist, depara: STATE.depara })); } catch (e) {}
+    try {
+      // fundos sem o cache transitório __norm (recomputado ao restaurar)
+      const fundos = STATE.fundos.map(f => { const c = Object.assign({}, f); delete c.__norm; return c; });
+      const q = STATE.quantum ? { rows: STATE.quantum.rows, headers: STATE.quantum.headers, cols: STATE.quantum.cols, janela: STATE.quantum.janela } : null;
+      localStorage.setItem(LS, JSON.stringify({
+        politicas: STATE.politicas, checklist: STATE.checklist, depara: STATE.depara,
+        fundos, fundoAtivo: STATE.fundoAtivo, cenarios: STATE.cenarios, cenarioAtivo: STATE.cenarioAtivo, quantum: q,
+      }));
+    } catch (e) { /* p.ex. quota excedida — segue sem persistir */ }
   }
   function restore() {
-    try { const d = JSON.parse(localStorage.getItem(LS) || '{}'); if (d.politicas) STATE.politicas = d.politicas; if (d.checklist) STATE.checklist = d.checklist; if (d.depara) STATE.depara = d.depara; } catch (e) {}
+    try {
+      const d = JSON.parse(localStorage.getItem(LS) || '{}');
+      if (d.politicas) STATE.politicas = d.politicas;
+      if (d.checklist) STATE.checklist = d.checklist;
+      if (d.depara) STATE.depara = d.depara;
+      if (Array.isArray(d.fundos)) STATE.fundos = d.fundos;
+      if (d.fundoAtivo) STATE.fundoAtivo = d.fundoAtivo;
+      if (d.cenarios) STATE.cenarios = d.cenarios;
+      if (d.cenarioAtivo) STATE.cenarioAtivo = d.cenarioAtivo;
+      if (d.quantum && d.quantum.rows) STATE.quantum = { rows: d.quantum.rows, headers: d.quantum.headers, cols: d.quantum.cols, janela: d.quantum.janela, index: buildQuantumIndex(d.quantum.rows, d.quantum.cols) };
+    } catch (e) {}
   }
 
   const fundo = () => STATE.fundos.find(f => f.header.fundo === STATE.fundoAtivo) || null;
@@ -161,11 +179,26 @@
     else if (STATE.view === 'cenarios') renderCenarios();
     else if (STATE.view === 'pretrade') renderPretrade();
     updateMeta();
+    persist();
   }
   function updateMeta() {
+    const box = $('#topbar-meta'); if (!box) return;
     const f = fundo();
-    $('#meta-fundo').textContent = f ? f.header.fundo : (STATE.fundos.length ? 'Selecione um fundo' : 'Nenhum fundo carregado');
-    $('#meta-data').textContent = f ? `${f.formato === 'bradesco' ? 'Bradesco' : 'BTG'} · posição ${f.header.cotaData || '—'} · PL ${moneyK(f.header.patrimonio)}` : 'Importe o relatório para começar';
+    if (!STATE.fundos.length) {
+      box.innerHTML = `<div><b>Nenhum fundo carregado</b></div><div>Importe o relatório para começar</div>`;
+      return;
+    }
+    const opts = STATE.fundos.map(fd => `<option value="${esc(fd.header.fundo)}" ${fd.header.fundo === STATE.fundoAtivo ? 'selected' : ''}>${esc(fd.header.fundo)}</option>`).join('');
+    box.innerHTML = `<div class="row gap-sm" style="justify-content:flex-end">
+        <select id="topbar-fund" class="topbar-fund" title="Trocar de fundo (mantém tudo salvo)">${opts}</select>
+        <button class="btn btn-ghost btn-sm" id="topbar-reset" title="Recomeçar — remove os fundos e cenários (mantém política e De-Para)">Limpar</button>
+      </div>
+      <div style="margin-top:4px">${f ? `${f.formato === 'bradesco' ? 'Bradesco' : 'BTG'} · posição ${f.header.cotaData || '—'} · PL ${moneyK(f.header.patrimonio)} · ${STATE.fundos.length} fundo(s)` : 'Selecione um fundo'}</div>`;
+  }
+  function limparTudo() {
+    if (!window.confirm('Recomeçar? Isso remove os fundos importados, as métricas e os cenários. A sua política e o De-Para são mantidos.')) return;
+    STATE.fundos = []; STATE.fundoAtivo = null; STATE.quantum = null; STATE.cenarios = {}; STATE.cenarioAtivo = {};
+    persist(); renderStepper(); go('input'); toast('Pronto para recomeçar', 'ok');
   }
 
   // ============================================================ 1. POSIÇÃO
@@ -1029,8 +1062,9 @@
   }
 
   document.addEventListener('click', (e) => {
-    const t = e.target.closest('[data-step],[data-fundo],[data-cen],[data-del],[data-gen],[data-pub],[data-rmativo],[data-zerar],#btn-exemplo,#q-exemplo,#q-modelo,#go-pretrade,#pol-reset,#cen-normalizar,#pt-print,#add-ativo-btn');
+    const t = e.target.closest('[data-step],[data-fundo],[data-cen],[data-del],[data-gen],[data-pub],[data-rmativo],[data-zerar],#btn-exemplo,#q-exemplo,#q-modelo,#go-pretrade,#pol-reset,#cen-normalizar,#pt-print,#add-ativo-btn,#topbar-reset');
     if (!t) return;
+    if (t.id === 'topbar-reset') return limparTudo();
     if (t.id === 'add-ativo-btn') return incluirAtivo();
     if (t.dataset.rmativo != null) { const c = cenarioAtual(); c.extra = (c.extra || []).filter(h => h.key !== t.dataset.rmativo); if (c.pesos) delete c.pesos[t.dataset.rmativo]; rerenderActive(); return; }
     if (t.dataset.zerar != null) { const c = cenarioAtual(); if (!c.pesos) c.pesos = {}; const f = fundo(); Engine.normalizarCarteira(f).concat(c.extra || []).forEach(h => { if (c.pesos[h.key] == null) c.pesos[h.key] = h.pesoAtual; }); c.pesos[t.dataset.zerar] = 0; rerenderActive(); return; }
@@ -1055,6 +1089,7 @@
     else if (t.id === 'file-xlsx') { if (t.files.length) handleXlsx(Array.from(t.files)); t.value = ''; }
     else if (t.id === 'pol-preset') { const f = fundo(); const keep = policy().publicoAlvo; const p = { chave: t.value, ...JSON.parse(JSON.stringify(Engine.PRESETS[t.value])) }; p.publicoAlvo = keep; STATE.politicas[f.header.fundo] = p; persist(); rerenderActive(); }
     else if (t.id === 'pt-cenario') { STATE.cenarioAtivo[fundo().header.fundo] = t.value; rerenderActive(); }
+    else if (t.id === 'topbar-fund') { STATE.fundoAtivo = t.value; renderStepper(); rerenderActive(); }
     else if (t.dataset && t.dataset.chk) { const f = fundo(); (STATE.checklist[f.header.fundo] = STATE.checklist[f.header.fundo] || {})[t.dataset.chk] = t.checked; persist(); renderPretrade(); }
     else if (t.dataset && t.dataset.pol) { const v = parseFloat(String(t.value).replace(',', '.')); if (!isNaN(v)) policy()[t.dataset.pol] = v; persist(); setTimeout(rerenderActive, 0); }
     else if (t.dataset && t.dataset.polTxt) { policy()[t.dataset.polTxt] = t.value || null; persist(); rerenderActive(); }
@@ -1078,6 +1113,7 @@
       c.pesos[t.dataset.peso] = isNaN(v) ? 0 : v;
       const tot = Object.values(c.pesos).reduce((s, x) => s + (+x || 0), 0);
       const el = $('#cen-total'); if (el) { el.textContent = pf(tot); el.className = Math.abs(tot - 100) > 0.5 ? 'neg' : 'pos'; }
+      persist();
     }
   });
   function incluirAtivo() {
