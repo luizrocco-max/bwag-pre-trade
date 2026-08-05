@@ -287,6 +287,76 @@
     if (/,\d+$/.test(s)) s = s.replace(/\./g, '').replace(',', '.');
     const n = parseFloat(s); return isNaN(n) ? null : n;
   }
+  const cotToDias = (v) => {
+    if (v == null) return null;
+    const m = String(v).match(/D\s*\+\s*(\d+)/i);
+    if (m) return parseInt(m[1], 10);
+    if (/t[ée]rmino|fechad|encerr/i.test(String(v))) return 9999; // fundo fechado / no vencimento
+    return null;
+  };
+
+  // ---- Quantum Axis: formato real com cabeçalho agrupado (métrica / janela / período)
+  function isQuantumAgrupado(aoa) {
+    const r0 = (aoa[0] || []).map(c => String(c || ''));
+    const r1 = (aoa[1] || []).map(c => String(c || ''));
+    const grupos = r0.filter(c => /Retorno|Volatilidade|Sharpe|VaR|Drawdown|Benchmark/i.test(c)).length;
+    const janelas = r1.some(c => /meses|no m[êe]s|no ano|no dia/i.test(c));
+    return grupos >= 3 && janelas;
+  }
+  // achata para o formato simples {headers, rows} com valores já escalados
+  function flattenQuantum(aoa, janelaPref) {
+    const win = janelaPref || 'ltimos 12 meses';
+    const groupRow = aoa[0] || [], winRow = aoa[1] || [];
+    const filled = []; let last = '';
+    for (let j = 0; j < groupRow.length; j++) { const v = String(groupRow[j] == null ? '' : groupRow[j]).trim(); if (v) last = v; filled.push(last); }
+    const winS = winRow.map(c => String(c == null ? '' : c));
+    // localiza coluna por (regex do grupo, janela)
+    const find = (gre, opt) => {
+      opt = opt || {};
+      for (let j = 0; j < filled.length; j++) {
+        if (!gre.test(filled[j])) continue;
+        if (opt.notBench && /Benchmark/i.test(filled[j])) continue;
+        if (opt.win && winS[j].indexOf(win) < 0) continue;
+        if (opt.first && winS[j] && !/no dia|no m[êe]s/i.test(winS[j]) && winS[j].indexOf(win) < 0) continue;
+        if (opt.contains && !opt.contains.test(filled[j])) continue;
+        return j;
+      }
+      return -1;
+    };
+    const idx = {
+      nome: 0,
+      ret12: find(/^Retorno$/i, { win: 1, notBench: 1 }),
+      pctCDI: find(/Benchmark.*CDI|CDI/i, { win: 1, contains: /Benchmark/i }),
+      vol: find(/Volatilidade/i, { win: 1 }),
+      dd: find(/M[áa]ximo Drawdown/i, { win: 1 }),
+      var: find(/VaR/i, { win: 1 }),
+      sharpe: find(/Sharpe/i, { win: 1 }),
+      pl: find(/Patrim[ôo]nio L[íi]quido/i, {}),
+      cot: find(/Convers[ãa]o da Cota|Resgate/i, {}),
+      adm: find(/Taxa de Administra/i, {}),
+      perf: find(/Taxa de Performance/i, {}),
+      classe: find(/Classifica[çc][ãa]o Anbima/i, {}),
+    };
+    // 1ª linha de dados = primeira com nome não vazio após o cabeçalho
+    let start = 1;
+    for (let i = 1; i < aoa.length; i++) { const c0 = aoa[i][0]; if (c0 && String(c0).trim() && !/meses|at[ée]/i.test(String(c0))) { start = i; break; } }
+    const headers = ['Nome do Fundo', 'Retorno 12M', '% do CDI 12M', 'Volatilidade 12M', 'Máximo Drawdown 12M', 'VaR 12M', 'Índice de Sharpe', 'Patrimônio Líquido', 'Cotização de Resgate (D+)', 'Taxa de Administração', 'Taxa de Performance', 'Classificação Anbima'];
+    const x100 = (v) => { const n = parseNumCell(v); return n == null ? null : Math.round(n * 10000) / 100; };
+    const rows = [];
+    for (let i = start; i < aoa.length; i++) {
+      const r = aoa[i]; if (!r || !r[0] || !String(r[0]).trim()) continue;
+      const g = (k) => idx[k] >= 0 ? r[idx[k]] : null;
+      rows.push([
+        String(r[0]).trim(),
+        x100(g('ret12')), x100(g('pctCDI')), x100(g('vol')), x100(g('dd')), x100(g('var')),
+        (parseNumCell(g('sharpe'))), parseNumCell(g('pl')),
+        g('cot') != null ? String(g('cot')).replace(/\s*du\s*$/i, '').trim() : null,
+        x100(g('adm')), (typeof g('perf') === 'number' ? x100(g('perf')) : (g('perf') || null)),
+        g('classe') != null ? String(g('classe')) : null,
+      ]);
+    }
+    return { headers, rows, janela: '12 meses' };
+  }
   function buildQuantumIndex(rows, cols) {
     const list = [], exact = {};
     for (const r of rows) {
@@ -299,7 +369,9 @@
         sharpe: parseNumCell(cols.sharpe != null ? r[cols.sharpe] : null),
         var: parseNumCell(cols.var != null ? r[cols.var] : null),
         taxaAdm: parseNumCell(cols.taxaAdm != null ? r[cols.taxaAdm] : null),
-        cotResg: parseNumCell(cols.cotResg != null ? r[cols.cotResg] : null),
+        cotResg: cols.cotResg != null ? r[cols.cotResg] : null,
+        cotDias: cotToDias(cols.cotResg != null ? r[cols.cotResg] : null),
+        pl: parseNumCell(cols.pl != null ? r[cols.pl] : null),
         classe: cols.classe != null ? r[cols.classe] : null,
       };
       o.__toks = new Set(Engine.normNome(nome).split(' ').filter(t => t.length > 2));
@@ -332,6 +404,7 @@
         const idx = q.cols[k];
         const v = idx != null ? r[idx] : null;
         if (k === 'nome' || k === 'classe') return `<td>${esc(v || '—')}</td>`;
+        if (k === 'cotResg') return `<td class="num mono">${esc(v == null || v === '' ? '—' : v)}</td>`;
         const n = parseNumCell(v);
         return `<td class="num">${n == null ? '—' : nf(n, k === 'sharpe' ? 2 : 1)}</td>`;
       }).join('') + `</tr>`;
@@ -392,6 +465,33 @@
   const numField = (key, label, val, step) => `<div class="field"><label>${label}</label><input class="input" type="number" step="${step || 1}" data-pol="${key}" value="${val}"></div>`;
 
   // ============================================================ 4. CENÁRIOS
+  function mapAnbimaClasse(s) {
+    const t = (s || '').toUpperCase();
+    if (/A[ÇC][ÕO]ES|EQUITY/.test(t)) return 'Renda Variável';
+    if (/CAMBIAL|C[ÂA]MBIO|MOEDA/.test(t)) return 'Moeda';
+    if (/RENDA FIXA|RF\b/.test(t)) return 'Renda Fixa';
+    if (/MULTIMERC/.test(t)) return 'Retorno Absoluto';
+    return 'Renda Variável';
+  }
+  // constrói um ativo (holding normalizado) a partir de uma linha do Quantum
+  function extraDeQuantum(q) {
+    const classe = mapAnbimaClasse(q.classe);
+    const nome = q.nome;
+    return {
+      key: 'novo:' + nome, nome, classe, subclasse: 'FUNDOS',
+      subclasseAtivo: q.classe || 'Fundo', pesoAtual: 0, financeiro: 0, novo: true,
+      emissor: nome, grupo: nome.split(' ').slice(0, 2).join(' '),
+      liqDias: q.cotDias != null ? q.cotDias : 30,
+      exterior: / IE\b|EXTERIOR|GLOBAL|USD|D[ÓO]LAR|OFFSHORE/i.test(nome),
+      publico: false, credito: /\bCP\b|CRED|CR[ÉE]D/i.test(nome + ' ' + (q.classe || '')),
+    };
+  }
+  function candidatosQuantum(f, cur) {
+    if (!STATE.quantum) return [];
+    const norm = Engine.normalizarCarteira(f).concat(cur.extra || []);
+    const usados = new Set(norm.map(h => Engine.normNome(h.nome)));
+    return STATE.quantum.index.list.filter(q => !usados.has(Engine.normNome(q.nome)));
+  }
   function renderCenarios() {
     const f = fundo();
     if (!f) return emptyView('view-cenarios', 'Importe um fundo para montar cenários de alocação.');
@@ -411,53 +511,77 @@
     });
     html += `</div></div></div>`;
 
-    // editor de pesos do cenário ativo
+    // editor de pesos do cenário ativo (carteira original + ativos incluídos)
     const norm = Engine.normalizarCarteira(f);
-    const pesos = {}; norm.forEach(h => pesos[h.key] = cur.pesos && cur.pesos[h.key] != null ? cur.pesos[h.key] : h.pesoAtual);
+    if (!cur.extra) cur.extra = [];
+    const extra = cur.extra;
+    const allH = norm.concat(extra);
+    const pesos = {}; allH.forEach(h => pesos[h.key] = cur.pesos && cur.pesos[h.key] != null ? cur.pesos[h.key] : h.pesoAtual);
     const totalTarget = Object.values(pesos).reduce((s, v) => s + (+v || 0), 0);
-    const P0 = Engine.perfil(f, null, STATE.quantum && STATE.quantum.index, pol);
-    const P1 = Engine.perfil(f, pesos, STATE.quantum && STATE.quantum.index, pol);
+    const qi = STATE.quantum && STATE.quantum.index;
+    const P0 = Engine.perfil(f, null, qi, pol);
+    const P1 = Engine.perfil(f, pesos, qi, pol, extra);
+    const cands = candidatosQuantum(f, cur);
+
+    // barra de inclusão de ativo
+    let addBar = '';
+    if (cur.base) {
+      addBar = `<div class="review-hint">Para <b>incluir ou excluir ativos</b>, crie um cenário (ex.: <i>Cenário em branco</i>) — a posição atual é somente leitura.</div>`;
+    } else if (cands.length) {
+      addBar = `<div class="row wrap" style="gap:8px;padding:12px 16px;background:var(--warm-gray);border-bottom:1px solid var(--border)">
+        <select class="select" id="add-ativo" style="flex:1;min-width:220px"><option value="">+ Incluir ativo do Quantum Axis…</option>
+          ${cands.map(q => `<option value="${esc(q.nome)}">${esc(q.nome)}${q.classe ? ' — ' + esc(q.classe) : ''}</option>`).join('')}</select>
+        <input class="input" id="add-peso" type="number" step="0.5" placeholder="peso %" style="width:110px">
+        <button class="btn btn-accent btn-sm" id="add-ativo-btn">Incluir</button></div>`;
+    } else {
+      addBar = `<div class="review-hint">Importe a planilha do <b>Quantum Axis</b> (aba Métricas) para incluir novos ativos com métricas e liquidez. Ou zere o peso de um ativo para excluí-lo.</div>`;
+    }
 
     html += `<div class="cols-2">
-      <div class="panel"><div class="panel-head"><div class="ph-text"><h2>${esc(cur.nome)}</h2><p>Ajuste os pesos-alvo (%). Total: <b id="cen-total" class="${Math.abs(totalTarget - 100) > 0.5 ? 'neg' : 'pos'}">${pf(totalTarget)}</b></p></div>
+      <div class="panel"><div class="panel-head"><div class="ph-text"><h2>${esc(cur.nome)}</h2><p>Ajuste pesos, inclua ou exclua ativos. Total: <b id="cen-total" class="${Math.abs(totalTarget - 100) > 0.5 ? 'neg' : 'pos'}">${pf(totalTarget)}</b></p></div>
         <div class="ph-actions">${cur.base ? '<span class="pill">posição atual (somente leitura)</span>' : '<button class="btn btn-ghost btn-sm" id="cen-normalizar">Normalizar 100%</button>'}</div></div>
-        <div class="panel-body tight"><div class="table-wrap"><table class="data"><thead><tr><th>Ativo</th><th class="num">Atual</th><th class="num">Alvo %</th><th class="num">Δ</th></tr></thead><tbody>`;
-    norm.slice().sort((a, b) => (pesos[b.key]) - (pesos[a.key])).forEach(h => {
+        ${addBar}
+        <div class="panel-body tight"><div class="table-wrap"><table class="data"><thead><tr><th>Ativo</th><th class="num">Atual</th><th class="num">Alvo %</th><th class="num">Δ</th>${cur.base ? '' : '<th></th>'}</tr></thead><tbody>`;
+    allH.slice().sort((a, b) => (pesos[b.key]) - (pesos[a.key])).forEach(h => {
       const alvo = pesos[h.key]; const d = alvo - h.pesoAtual;
-      html += `<tr><td><b>${esc(h.nome)}</b><div class="small muted">${esc(h.classe)} · D+${h.liqDias}</div></td>
+      const excl = !cur.base && Math.abs(alvo) < 0.001 && !h.novo;
+      html += `<tr${excl ? ' style="opacity:.5"' : ''}><td><b>${esc(h.nome)}</b>${h.novo ? ' <span class="badge badge-info" style="padding:1px 6px">novo</span>' : ''}<div class="small muted">${esc(h.classe)} · D+${h.liqDias}${excl ? ' · excluído' : ''}</div></td>
         <td class="num">${pf(h.pesoAtual, 2)}</td>
-        <td class="num">${cur.base ? pf(alvo, 2) : `<input class="cell-input" data-peso="${h.key}" value="${nf(alvo, 2)}">`}</td>
-        <td class="num ${d > 0.01 ? 'pos' : d < -0.01 ? 'neg' : 'muted'}">${d > 0 ? '+' : ''}${nf(d, 2)}</td></tr>`;
+        <td class="num">${cur.base ? pf(alvo, 2) : `<input class="cell-input" data-peso="${esc(h.key)}" value="${nf(alvo, 2)}">`}</td>
+        <td class="num ${d > 0.01 ? 'pos' : d < -0.01 ? 'neg' : 'muted'}">${d > 0 ? '+' : ''}${nf(d, 2)}</td>
+        ${cur.base ? '' : `<td class="num">${h.novo ? `<span data-rmativo="${esc(h.key)}" title="remover" style="cursor:pointer;color:var(--neg)">✕</span>` : `<span data-zerar="${esc(h.key)}" title="excluir (zerar)" style="cursor:pointer;color:var(--text-muted)">⊘</span>`}</td>`}</tr>`;
     });
     html += `</tbody></table></div></div></div>`;
 
     // KPIs comparativos + trade list
     html += `<div class="stack">
       <div class="panel"><div class="panel-head"><div class="ph-text"><h2>Impacto do cenário</h2><p>Atual → proposto</p></div></div><div class="panel-body">
-        ${cmpRow('Maior emissor', pf(P0.maiorEmissor[1]), pf(P1.maiorEmissor[1]), pol.limiteEmissor, true)}
-        ${cmpRow('Top-5', pf(P0.top5), pf(P1.top5), pol.top5, true)}
-        ${cmpRow('Máx. ativo', pf(P0.maxAtivo), pf(P1.maxAtivo), pol.maxAtivo, true)}
-        ${cmpRow('HHI', nf(P0.hhi, 3), nf(P1.hhi, 3), pol.hhiMax, true)}
-        ${cmpRow('Exterior', pf(P0.exteriorPct), pf(P1.exteriorPct), Engine.EXTERIOR_TETO[pol.publicoAlvo] || 100, true)}
-        ${cmpRow('Liquidez D+' + pol.resgateDias, pf(P0.liqCum(pol.resgateDias)), pf(P1.liqCum(pol.resgateDias)), 90, false)}
-        ${P1.volEst != null ? cmpRow('Volatilidade est.', pf(P0.volEst), pf(P1.volEst), pol.volMax, true) : ''}
+        ${cmpRow('Maior emissor', pf(P0.maiorEmissor[1]), pf(P1.maiorEmissor[1]))}
+        ${cmpRow('Top-5', pf(P0.top5), pf(P1.top5))}
+        ${cmpRow('Máx. ativo', pf(P0.maxAtivo), pf(P1.maxAtivo))}
+        ${cmpRow('HHI', nf(P0.hhi, 3), nf(P1.hhi, 3))}
+        ${cmpRow('Nº posições', P0.nPosicoes, P1.nPosicoes)}
+        ${cmpRow('Exterior', pf(P0.exteriorPct), pf(P1.exteriorPct))}
+        ${cmpRow('Liquidez D+' + pol.resgateDias, pf(P0.liqCum(pol.resgateDias)), pf(P1.liqCum(pol.resgateDias)))}
+        ${P1.volEst != null ? cmpRow('Volatilidade est.', pf(P0.volEst), pf(P1.volEst)) : ''}
       </div></div>
-      ${tradeList(f, norm, pesos)}
+      ${tradeList(f, allH, pesos)}
     </div></div>`;
 
     $('#view-cenarios').innerHTML = html;
   }
-  function cmpRow(label, a, b, lim, lower) {
+  function cmpRow(label, a, b) {
     return `<div class="scn-metric"><span>${label}</span><b>${a} <span class="muted">→</span> ${b}</b></div>`;
   }
-  function tradeList(f, norm, pesos) {
+  function tradeList(f, allH, pesos) {
     const pl = f.header.patrimonio || 0;
-    const trades = norm.map(h => ({ nome: h.nome, d: (pesos[h.key] - h.pesoAtual), rs: (pesos[h.key] - h.pesoAtual) / 100 * pl }))
+    const trades = allH.map(h => ({ nome: h.nome, novo: h.novo, d: (pesos[h.key] - h.pesoAtual), rs: (pesos[h.key] - h.pesoAtual) / 100 * pl }))
       .filter(t => Math.abs(t.d) > 0.01).sort((a, b) => Math.abs(b.rs) - Math.abs(a.rs));
     if (!trades.length) return `<div class="panel"><div class="panel-body"><div class="empty-state"><div class="es-ico">≡</div><h3>Sem ordens</h3><div class="small">O cenário é idêntico à posição atual.</div></div></div></div>`;
     let h = `<div class="panel"><div class="panel-head"><div class="ph-text"><h2>Ordens do pré-trade</h2><p>${trades.length} movimentações para atingir o cenário</p></div></div><div class="panel-body tight"><div class="table-wrap"><table class="data"><thead><tr><th>Ativo</th><th>Operação</th><th class="num">Δ %PL</th><th class="num">Financeiro</th></tr></thead><tbody>`;
     trades.forEach(t => {
-      h += `<tr><td><b>${esc(t.nome)}</b></td><td><span class="badge ${t.d > 0 ? 'badge-ok' : 'badge-block'}"><span class="dot"></span>${t.d > 0 ? 'COMPRA' : 'VENDA'}</span></td>
+      const op = t.d > 0 ? (t.novo ? 'INCLUIR' : 'COMPRA') : 'VENDA';
+      h += `<tr><td><b>${esc(t.nome)}</b></td><td><span class="badge ${t.d > 0 ? 'badge-ok' : 'badge-block'}"><span class="dot"></span>${op}</span></td>
         <td class="num ${t.d > 0 ? 'pos' : 'neg'}">${t.d > 0 ? '+' : ''}${nf(t.d, 2)}%</td><td class="num">${money(Math.abs(t.rs))}</td></tr>`;
     });
     return h + `</tbody></table></div></div></div>`;
@@ -466,7 +590,8 @@
   // ============================================================ 5. PRÉ-TRADE
   function runEngineActive(pesos) {
     const f = fundo(); if (!f) return null;
-    return Engine.avaliar(f, pesos !== undefined ? pesos : cenarioPesos(cenarioAtual(), f), STATE.quantum && STATE.quantum.index, policy());
+    const c = cenarioAtual();
+    return Engine.avaliar(f, pesos !== undefined ? pesos : cenarioPesos(c, f), STATE.quantum && STATE.quantum.index, policy(), c && c.extra);
   }
   function cenarioPesos(c, f) {
     if (!c || c.base) return null;
@@ -547,7 +672,7 @@
     let h = `<div class="panel"><div class="panel-head"><div class="ph-text"><h2>Comparação de cenários</h2><p>Enquadramento e KPIs lado a lado</p></div></div><div class="panel-body tight"><div class="table-wrap"><table class="data"><thead><tr><th>Cenário</th><th class="num">Bloqueios</th><th class="num">Alertas</th><th class="num">Maior emissor</th><th class="num">Top-5</th><th class="num">HHI</th><th class="num">Liq. D+${pol.resgateDias}</th>${STATE.quantum ? '<th class="num">Vol est.</th>' : ''}</tr></thead><tbody>`;
     cs.forEach(c => {
       const pesos = c.base ? null : c.pesos;
-      const R = Engine.avaliar(f, pesos, STATE.quantum && STATE.quantum.index, pol);
+      const R = Engine.avaliar(f, pesos, STATE.quantum && STATE.quantum.index, pol, c.extra);
       const P = R.perfil;
       h += `<tr><td><b>${esc(c.nome)}</b></td>
         <td class="num ${R.resumo.bloqueio ? 'neg' : 'pos'}">${R.resumo.bloqueio}</td>
@@ -597,18 +722,25 @@
       const wb = XLSX.read(buf, { type: 'array' });
       const ws = wb.Sheets[wb.SheetNames[0]];
       const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true });
-      // localiza a linha de cabeçalho (a que tem mais texto)
-      let hi = 0, best = 0;
-      for (let i = 0; i < Math.min(15, aoa.length); i++) {
-        const txt = aoa[i].filter(c => typeof c === 'string' && c.trim().length > 1).length;
-        if (txt > best) { best = txt; hi = i; }
+      let headers, rows, janela = null;
+      if (isQuantumAgrupado(aoa)) {
+        // formato real do Quantum Axis (cabeçalho agrupado + valores em fração)
+        const flat = flattenQuantum(aoa);
+        headers = flat.headers; rows = flat.rows; janela = flat.janela;
+      } else {
+        // planilha simples: localiza a linha de cabeçalho (a com mais texto)
+        let hi = 0, best = 0;
+        for (let i = 0; i < Math.min(15, aoa.length); i++) {
+          const txt = aoa[i].filter(c => typeof c === 'string' && c.trim().length > 1).length;
+          if (txt > best) { best = txt; hi = i; }
+        }
+        headers = (aoa[hi] || []).map(h => String(h == null ? '' : h).trim());
+        rows = aoa.slice(hi + 1).filter(r => r.some(c => c != null && c !== ''));
       }
-      const headers = (aoa[hi] || []).map(h => String(h == null ? '' : h).trim());
-      const rows = aoa.slice(hi + 1).filter(r => r.some(c => c != null && c !== ''));
       const cols = detectCols(headers);
       const index = buildQuantumIndex(rows, cols);
-      STATE.quantum = { rows, headers, cols, index };
-      toast(`Planilha importada: ${rows.length} linhas, ${Object.values(cols).filter(v => v != null).length} colunas reconhecidas`, 'ok');
+      STATE.quantum = { rows, headers, cols, index, janela };
+      toast(`Planilha importada: ${rows.length} ativos${janela ? ' · janela ' + janela : ''} · ${Object.values(cols).filter(v => v != null).length} métricas reconhecidas`, 'ok');
     } catch (e) { console.error(e); toast('Erro ao ler planilha: ' + e.message, 'err'); }
     renderStepper(); rerenderActive();
   }
@@ -727,8 +859,11 @@
   }
 
   document.addEventListener('click', (e) => {
-    const t = e.target.closest('[data-step],[data-fundo],[data-cen],[data-del],[data-gen],[data-pub],#btn-exemplo,#q-exemplo,#q-modelo,#go-pretrade,#pol-reset,#cen-normalizar,#pt-print');
+    const t = e.target.closest('[data-step],[data-fundo],[data-cen],[data-del],[data-gen],[data-pub],[data-rmativo],[data-zerar],#btn-exemplo,#q-exemplo,#q-modelo,#go-pretrade,#pol-reset,#cen-normalizar,#pt-print,#add-ativo-btn');
     if (!t) return;
+    if (t.id === 'add-ativo-btn') return incluirAtivo();
+    if (t.dataset.rmativo != null) { const c = cenarioAtual(); c.extra = (c.extra || []).filter(h => h.key !== t.dataset.rmativo); if (c.pesos) delete c.pesos[t.dataset.rmativo]; rerenderActive(); return; }
+    if (t.dataset.zerar != null) { const c = cenarioAtual(); if (!c.pesos) c.pesos = {}; const f = fundo(); Engine.normalizarCarteira(f).concat(c.extra || []).forEach(h => { if (c.pesos[h.key] == null) c.pesos[h.key] = h.pesoAtual; }); c.pesos[t.dataset.zerar] = 0; rerenderActive(); return; }
     if (t.dataset.step) return go(t.dataset.step);
     if (t.id === 'go-pretrade') return go('pretrade');
     if (t.id === 'btn-exemplo') return carregarExemplo();
@@ -762,16 +897,32 @@
       const c = cenarioAtual(); if (!c || c.base) return;
       const v = parseFloat(String(t.value).replace(',', '.'));
       if (!c.pesos) c.pesos = {};
-      const f = fundo(); Engine.normalizarCarteira(f).forEach(h => { if (c.pesos[h.key] == null) c.pesos[h.key] = h.pesoAtual; });
+      const f = fundo(); Engine.normalizarCarteira(f).concat(c.extra || []).forEach(h => { if (c.pesos[h.key] == null) c.pesos[h.key] = h.pesoAtual; });
       c.pesos[t.dataset.peso] = isNaN(v) ? 0 : v;
       const tot = Object.values(c.pesos).reduce((s, x) => s + (+x || 0), 0);
       const el = $('#cen-total'); if (el) { el.textContent = pf(tot); el.className = Math.abs(tot - 100) > 0.5 ? 'neg' : 'pos'; }
     }
   });
+  function incluirAtivo() {
+    const c = cenarioAtual(); if (!c || c.base) { toast('Crie um cenário para incluir ativos', 'err'); return; }
+    const sel = $('#add-ativo'); const pin = $('#add-peso');
+    const nome = sel && sel.value; if (!nome) { toast('Escolha um ativo', 'err'); return; }
+    const q = STATE.quantum.index.list.find(x => x.nome === nome); if (!q) return;
+    const peso = parseFloat(String(pin && pin.value).replace(',', '.'));
+    const h = extraDeQuantum(q);
+    if (!c.extra) c.extra = [];
+    if (c.extra.some(x => x.key === h.key)) { toast('Ativo já incluído', 'err'); return; }
+    c.extra.push(h);
+    if (!c.pesos) { c.pesos = {}; const f = fundo(); Engine.normalizarCarteira(f).forEach(x => c.pesos[x.key] = x.pesoAtual); }
+    c.pesos[h.key] = isNaN(peso) ? 0 : peso;
+    toast(`${nome} incluído${isNaN(peso) ? '' : ' com ' + nf(peso, 1) + '%'}`, 'ok');
+    rerenderActive();
+  }
   function normalizarCenario() {
     const c = cenarioAtual(); if (!c || c.base) return;
-    const f = fundo(); const norm = Engine.normalizarCarteira(f);
-    if (!c.pesos) { c.pesos = {}; norm.forEach(h => c.pesos[h.key] = h.pesoAtual); }
+    const f = fundo(); const allH = Engine.normalizarCarteira(f).concat(c.extra || []);
+    if (!c.pesos) c.pesos = {};
+    allH.forEach(h => { if (c.pesos[h.key] == null) c.pesos[h.key] = h.pesoAtual; });
     const tot = Object.values(c.pesos).reduce((s, x) => s + (+x || 0), 0) || 1;
     Object.keys(c.pesos).forEach(k => c.pesos[k] = c.pesos[k] / tot * 100);
     rerenderActive();

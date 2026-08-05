@@ -138,8 +138,9 @@
 
   // ------------------------------------------------------------- perfil
   // pesos: objeto {key: peso%} ; se ausente usa pesoAtual.
-  function perfil(fund, pesos, quantumIndex, policy) {
-    const hs = normalizarCarteira(fund);
+  // extra: ativos incluídos no cenário (fora da carteira original), já normalizados.
+  function perfil(fund, pesos, quantumIndex, policy, extra) {
+    const hs = normalizarCarteira(fund).concat(extra || []);
     const w = (h) => (pesos && pesos[h.key] != null) ? pesos[h.key] : h.pesoAtual;
     const total = hs.reduce((s, h) => s + w(h), 0) || 100;
 
@@ -160,15 +161,17 @@
       porGrupo[h.grupo] = (porGrupo[h.grupo] || 0) + p;
       if (h.exterior) exterior += p;
       if (h.credito) credito += p;
-      if (h.liqDias === 0) caixa += p;
       hhi += (p / 100) * (p / 100);
       if (p >= 0.5) nPos++;
       if (p > maxAtivo) maxAtivo = p;
-      const d = h.liqDias;
+      const q = casarQuantum(h, quantumIndex);
+      // liquidez efetiva: prioriza a cotização do Quantum Axis quando disponível
+      const d = (q && q.cotDias != null) ? q.cotDias : h.liqDias;
+      h.__liq = d;
+      if (d === 0) caixa += p;
       const b = d <= 0 ? 'D+0' : d <= 1 ? 'D+1' : d <= 15 ? 'D+2 a D+15' : d <= 35 ? 'D+16 a D+35' : d <= 65 ? 'D+36 a D+65' : d <= 1450 ? 'D+66 a D+1450' : 'D>1450';
       buckets[b] += p;
       liqSorted.push({ d, p });
-      const q = casarQuantum(h, quantumIndex);
       if (q) {
         if (q.vol != null) { volNum += p * q.vol; volDen += p; }
         if (q.ret12 != null) ret12Num += p * q.ret12;
@@ -178,7 +181,7 @@
       }
     }
     liqSorted.sort((a, b) => a.d - b.d);
-    const liqCum = (nd) => hs.reduce((s, h) => s + (h.liqDias <= nd ? w(h) / total * 100 : 0), 0);
+    const liqCum = (nd) => hs.reduce((s, h) => s + (((h.__liq != null ? h.__liq : h.liqDias) <= nd) ? w(h) / total * 100 : 0), 0);
 
     const top = holdingsW.map(x => x.peso).sort((a, b) => b - a);
     const somaTop = (n) => top.slice(0, n).reduce((s, v) => s + v, 0);
@@ -277,12 +280,13 @@
     { id: 'vol', nome: 'Volatilidade estimada da carteira', categoria: 'Risco de mercado', fonte: 'Quantum Axis (vol anual)',
       evaluate: (P, pol) => {
         if (P.volEst == null) return { status: NA, atual: 'sem dados', limite: '≤ ' + pct(pol.volMax) + ' a.a.', msg: 'Importe métricas do Quantum Axis para estimar a volatilidade.' };
+        if (P.coberturaVol < 0.4) return { status: NA, atual: 'cobertura ' + pct(P.coberturaVol * 100), limite: '≤ ' + pct(pol.volMax) + ' a.a.', msg: 'Cobertura de vol do Quantum < 40% da carteira — estimativa não confiável. Case mais ativos.' };
         return { status: leq(P.volEst, pol.volMax, AL), atual: pct(P.volEst) + ' a.a. (cob. ' + pct(P.coberturaVol * 100) + ')',
           limite: '≤ ' + pct(pol.volMax) + ' a.a.', msg: 'Média ponderada das vols (estimativa sem correlação — conservadora).' };
       } },
     { id: 'var', nome: 'VaR 1d 95% estimado', categoria: 'Risco de mercado', fonte: 'Paramétrico (1,645·σ/√252)',
       evaluate: (P, pol) => {
-        if (P.varEst == null) return { status: NA, atual: 'sem dados', limite: '≤ ' + pct(pol.varMax), msg: 'Depende da volatilidade do Quantum Axis.' };
+        if (P.varEst == null || P.coberturaVol < 0.4) return { status: NA, atual: P.varEst == null ? 'sem dados' : 'cobertura ' + pct(P.coberturaVol * 100), limite: '≤ ' + pct(pol.varMax), msg: 'Depende da volatilidade do Quantum Axis (cobertura ≥ 40% da carteira).' };
         return { status: leq(P.varEst, pol.varMax, AL), atual: pct(P.varEst) + ' do PL', limite: '≤ ' + pct(pol.varMax),
           msg: 'Perda potencial em 1 dia a 95% (estimativa paramétrica).' };
       } },
@@ -301,8 +305,8 @@
   ];
 
   // ------------------------------------------------------------- runner
-  function avaliar(fund, pesos, quantumIndex, policy) {
-    const P = perfil(fund, pesos, quantumIndex, policy);
+  function avaliar(fund, pesos, quantumIndex, policy, extra) {
+    const P = perfil(fund, pesos, quantumIndex, policy, extra);
     const resultados = AUTO_RULES.map(r => {
       const out = r.evaluate(P, policy);
       return { id: r.id, nome: r.nome, categoria: r.categoria, fonte: r.fonte, ...out };
