@@ -1,0 +1,59 @@
+{{STYLES}}
+
+<div class="app">
+  <!-- ------------------------------------------------------------- topbar -->
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <img src="{{LOGO}}" alt="BWAG">
+        <div class="brand-divider"></div>
+        <div class="brand-title">
+          <b>Dashboard Pré-Trade</b>
+          <span>Enquadramento · ANBIMA · CVM 175</span>
+        </div>
+      </div>
+      <div class="topbar-spacer"></div>
+      <div class="topbar-meta">
+        <div><b id="meta-fundo">Nenhum fundo carregado</b></div>
+        <div id="meta-data">Importe o relatório do BTG para começar</div>
+      </div>
+    </div>
+  </header>
+
+  <main class="main">
+    <!-- ---------------------------------------------------------- stepper -->
+    <nav class="stepper" id="stepper"></nav>
+
+    <!-- =============================================== 1. FUNDOS & POSIÇÃO -->
+    <section class="view active" id="view-input"></section>
+    <!-- =============================================== 2. QUANTUM AXIS ---->
+    <section class="view" id="view-quantum"></section>
+    <!-- =============================================== 3. POLÍTICA -------->
+    <section class="view" id="view-politica"></section>
+    <!-- =============================================== 4. CENÁRIOS -------->
+    <section class="view" id="view-cenarios"></section>
+    <!-- =============================================== 5. PRÉ-TRADE ------->
+    <section class="view" id="view-pretrade"></section>
+  </main>
+
+  <!-- ------------------------------------------------------------- footer -->
+  <footer class="footer">
+    <div class="footer-inner">
+      <div><b>BWAG</b> · Brazil Wealth Advisory Group · Uso interno · Confidencial</div>
+      <div>Ferramenta de apoio ao enquadramento pré-negociação. Não substitui a análise de compliance.</div>
+    </div>
+  </footer>
+</div>
+
+<div class="toast-wrap" id="toasts"></div>
+
+<!-- worker do pdf.js embutido como texto (o app cria um Blob a partir dele) -->
+{{PDF_WORKER}}
+<!-- bibliotecas -->
+{{XLSX}}
+{{PDFJS}}
+<!-- dados e lógica -->
+{{CATALOGS}}
+{{PARSER}}
+{{ENGINE}}
+{{APP}}

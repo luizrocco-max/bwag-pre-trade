@@ -12,3 +12,7 @@ npm-debug.log*
 # Temporários locais
 *.log
 .cache/
+
+# Artefatos de teste / build local
+/shot*.png
+/*.tmp

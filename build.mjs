@@ -27,7 +27,9 @@ const safe = (js) => js.replace(/<\/script/gi, '<\\/script');
 
 const styles      = r('src/styles.css');
 const template    = r('src/index.html');
-const catalogs    = safe(r('src/catalogs.js'));
+const catalogs    = safe(r('src/catalog-data.js'));
+const parser      = safe(r('src/parser.js'));
+const engine      = safe(r('src/engine.js'));
 const app         = safe(r('src/app.js'));
 const xlsx        = safe(r('vendor/xlsx.full.min.js'));
 const pdfjs       = safe(r('vendor/pdf.min.js'));
@@ -37,17 +39,21 @@ const logo        = 'data:image/png;base64,' + b64('assets/bwag-logo.png');
 const logoWhite   = 'data:image/png;base64,' + b64('assets/bwag-logo-white.png');
 
 // Monta o corpo a partir do template.
-let body = template
-  .replace('{{STYLES}}', `<style>\n${styles}\n</style>`)
-  .replace(/{{LOGO}}/g, logo)
-  .replace(/{{LOGO_WHITE}}/g, logoWhite)
-  // Ordem importa: libs primeiro, depois catálogos, depois app.
-  .replace('{{XLSX}}', `<script>${xlsx}</script>`)
-  .replace('{{PDFJS}}', `<script>${pdfjs}</script>`)
-  // Worker embutido como texto (não executa aqui) — o app cria um Blob a partir dele.
-  .replace('{{PDF_WORKER}}', `<script type="javascript/worker" id="pdfWorkerSrc">${pdfWorker}</script>`)
-  .replace('{{CATALOGS}}', `<script>${catalogs}</script>`)
-  .replace('{{APP}}', `<script>${app}</script>`);
+// IMPORTANTE: usar funções replacer — o conteúdo JS contém sequências "$" que,
+// como string de substituição, seriam interpretadas como padrões ($&, $$, $1...).
+const inject = (tpl, ph, content) => tpl.replace(ph, () => content);
+let body = template;
+body = inject(body, '{{STYLES}}', `<style>\n${styles}\n</style>`);
+body = body.replace(/{{LOGO}}/g, () => logo).replace(/{{LOGO_WHITE}}/g, () => logoWhite);
+// Ordem importa: libs primeiro, depois catálogos/parser/engine, depois app.
+body = inject(body, '{{XLSX}}', `<script>${xlsx}</script>`);
+body = inject(body, '{{PDFJS}}', `<script>${pdfjs}</script>`);
+// Worker embutido como texto (não executa aqui) — o app cria um Blob a partir dele.
+body = inject(body, '{{PDF_WORKER}}', `<script type="javascript/worker" id="pdfWorkerSrc">${pdfWorker}</script>`);
+body = inject(body, '{{CATALOGS}}', `<script>${catalogs}</script>`);
+body = inject(body, '{{PARSER}}', `<script>${parser}</script>`);
+body = inject(body, '{{ENGINE}}', `<script>${engine}</script>`);
+body = inject(body, '{{APP}}', `<script>${app}</script>`);
 
 // Saída 1 — Artifact (corpo apenas; a plataforma envolve em <html>/<head>/<body>).
 mkdirSync(join(ROOT, 'dist'), { recursive: true });
