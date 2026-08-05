@@ -453,6 +453,7 @@
         ${numField('hhiMax', 'HHI máximo', pol.hhiMax, 0.01)}
         ${numField('minPosicoes', 'Mín. de posições', pol.minPosicoes, 1)}
         ${numField('resgateDias', 'Prazo de resgate (D+)', pol.resgateDias, 1)}
+        ${numField('liqResgateMin', 'Liquidez mín. no resgate (%)', pol.liqResgateMin != null ? pol.liqResgateMin : 90)}
         ${numField('lcrD1', 'Liquidez mín. D+1 (%)', pol.lcrD1)}
         ${numField('lcrD5', 'Liquidez mín. D+5 (%)', pol.lcrD5)}
         ${numField('caixaMin', 'Caixa mínimo (%)', pol.caixaMin)}

@@ -65,7 +65,9 @@
   }
   function presetPara(nomeFundo) {
     const k = detectarClasse(nomeFundo);
-    return { chave: k, ...JSON.parse(JSON.stringify(PRESETS[k])) };
+    const p = { chave: k, ...JSON.parse(JSON.stringify(PRESETS[k])) };
+    if (p.liqResgateMin == null) p.liqResgateMin = 90;   // % mín. conversível no prazo de resgate
+    return p;
   }
 
   // ------------------------------------------------- normalização de holdings
@@ -261,9 +263,10 @@
         msg: 'Contagem de ativos com peso relevante (≥ 0,5%).' }) },
     { id: 'liq-resgate', nome: 'Liquidez × prazo de resgate', categoria: 'Liquidez', fonte: 'CVM 175 · compatibilidade',
       evaluate: (P, pol) => {
+        const min = pol.liqResgateMin != null ? pol.liqResgateMin : 90;
         const a = P.liqCum(pol.resgateDias);
-        return { status: geq(a, 90, BL), atual: pct(a) + ' até D+' + pol.resgateDias, limite: '≥ 90% em D+' + pol.resgateDias,
-          msg: `Ao menos 90% do PL deve ser conversível dentro do prazo de cotização+liquidação (D+${pol.resgateDias}).` };
+        return { status: geq(a, min, BL), atual: pct(a) + ' até D+' + pol.resgateDias, limite: '≥ ' + pct(min, 0) + ' em D+' + pol.resgateDias,
+          msg: `Ao menos ${pct(min, 0)} do PL deve ser conversível dentro do prazo de cotização+liquidação (D+${pol.resgateDias}).` };
       } },
     { id: 'lcr-d1', nome: 'Liquidez de curtíssimo prazo (D+1)', categoria: 'Liquidez', fonte: 'LCR interno',
       evaluate: (P, pol) => ({ status: geq(P.liqCum(1), pol.lcrD1, AL), atual: pct(P.liqCum(1)) + ' em D+1', limite: '≥ ' + pct(pol.lcrD1),
