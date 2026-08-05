@@ -17,3 +17,5 @@ npm-debug.log*
 /shot*.png
 /*.tmp
 /q*.png
+/package.json
+/package-lock.json
