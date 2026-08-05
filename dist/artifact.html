@@ -1265,6 +1265,35 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
 
   // ---------------------------------------------------------- ajuda ("?")
   const help = (txt) => `<span class="help" tabindex="0" role="note" aria-label="ajuda" data-tip="${esc(txt)}">?</span>`;
+  const RULE_HELP = {
+    tipificacao: 'Verifica se a classe do fator de risco que dá nome ao fundo mantém o piso do PL (Ações ≥67% em RV, RF ≥80%, Cambial ≥80%). Bloqueante — descaracteriza o tipo do fundo (CVM 175).',
+    bandas: 'Compara a alocação de cada classe com as bandas mín/máx definidas na Política (SAA/IPS). Fora da banda gera alerta.',
+    exterior: 'Soma o peso de ativos no exterior (fundos IE, BDR, offshore) e compara com o teto do público-alvo: varejo 20% · qualificado 40% · profissional 100%.',
+    'conc-emissor': 'Maior soma de %PL por emissor. Limite por tipo (CVM 175 art. 44): instituição financeira 20% · companhia aberta/fundo 10% · PF/PJ 5%. Ajuste o limite ao tipo do maior emissor.',
+    'conc-grupo': 'Soma dos emissores do mesmo grupo econômico (agrupados por prefixo do nome). Captura risco de contraparte correlacionado.',
+    'conc-ativo': 'Maior peso em um único ativo (single-line). Limita risco idiossincrático.',
+    'conc-top5': 'Soma dos 5 maiores ativos — indicador de pulverização da carteira.',
+    'conc-top10': 'Soma dos 10 maiores ativos.',
+    hhi: 'HHI = Σ(pesoᵢ²). Quanto menor, mais diversificada a carteira. Nº efetivo de posições = 1/HHI.',
+    'min-posicoes': 'Conta os ativos com peso ≥ 0,5% do PL. Poucas posições relevantes = maior risco de concentração.',
+    'liq-resgate': 'Percentual do PL conversível dentro do prazo de resgate (cotização + liquidação, D+N). Bloqueante se abaixo do mínimo — descasamento entre a liquidez dos ativos e o passivo de resgate.',
+    'lcr-d1': 'Colchão de curtíssimo prazo: quanto do PL é liquidável dentro da janela D+X definida na Política.',
+    'lcr-d5': 'Colchão de curto prazo, na janela D+X definida na Política.',
+    'caixa-min': 'Caixa + ativos de liquidez imediata (D+0) após o trade.',
+    'credito-privado': 'Soma o peso em crédito privado (classificação heurística por nome/classe). Acima de 50% do PL o fundo exige sufixo "Crédito Privado" e público qualificado (CVM 175).',
+    vol: 'Volatilidade anualizada estimada como média ponderada das vols do Quantum Axis (sem correlação — leitura conservadora). Só é avaliada com cobertura ≥ 40% da carteira.',
+    var: 'VaR 1 dia 95% ≈ 1,645 × vol ⁄ √252, em % do PL. Estimativa paramétrica a partir da volatilidade; depende das métricas do Quantum Axis.',
+  };
+  const CHECK_HELP = {
+    'mandato-escrito': 'Confirme que há contrato/mandato de gestão assinado, com política de investimento, riscos, remuneração e poderes discricionários formalizados.',
+    'suitability-api': 'Confirme que a API/suitability do cliente está vigente (≤ 24 meses) e que o produto é adequado ao perfil.',
+    'cadastro-kyc': 'Confirme cadastro e KYC/PLD atualizados (≤ 5 anos) e sem alerta de sanção pendente.',
+    'credito-analise': 'Havendo crédito privado, confirme que a análise de crédito foi feita, formalizada e arquivada.',
+    'melhor-execucao': 'Confirme observância da política de melhor execução (preço, custo, liquidez e contraparte).',
+    'conflito-crosstrade': 'Confirme que conflitos de interesse e operações com partes ligadas/cross-trade estão autorizados por escrito.',
+    rateio: 'Se a ordem for agregada com outros veículos, confirme a aplicação do critério de rateio pré-estabelecido.',
+    registro: 'Confirme o registro da ordem, a fundamentação e o enquadramento (trilha de auditoria).',
+  };
   let tipEl = null;
   function setupTooltip() {
     tipEl = document.createElement('div'); tipEl.id = 'tooltip'; document.body.appendChild(tipEl);
@@ -1401,12 +1430,12 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
       <h2>${esc(H.fundo)}</h2><p>Classe estimada: <b>${esc(Engine.PRESETS[pol.chave].rotulo)}</b> · público-alvo <b>${(pol.publicoAlvo || '').toLowerCase()}</b> · ${f.carteira.length} ativos</p></div>
       <div class="ph-actions"><button class="btn btn-accent btn-sm" id="go-pretrade">Rodar pré-trade →</button></div></div><div class="panel-body">
       <div class="kpi-grid">
-        ${kpi('Patrimônio líquido', moneyK(H.patrimonio), H.cotaData ? 'posição ' + H.cotaData : '', true)}
-        ${H.cota ? kpi('Valor da cota', 'R$ ' + nf(H.cota, 6), '') : kpi('Ativos', f.carteira.length, 'linhas na carteira')}
-        ${kpi('Maior emissor', pf(P.maiorEmissor[1]), esc(P.maiorEmissor[0]).slice(0, 22))}
-        ${kpi('Concentração Top-5', pf(P.top5), 'HHI ' + nf(P.hhi, 3) + ' · N≈' + nf(P.nEfetivo, 1))}
-        ${kpi('Exterior', pf(P.exteriorPct), 'teto ' + pf(Engine.EXTERIOR_TETO[pol.publicoAlvo] || 100, 0))}
-        ${kpi('Liquidez D+' + pol.resgateDias, pf(P.liqCum(pol.resgateDias)), 'caixa D+0 ' + pf(P.caixaPct))}
+        ${kpi('Patrimônio líquido', moneyK(H.patrimonio), H.cotaData ? 'posição ' + H.cotaData : '', true, 'Patrimônio líquido do fundo na data-base da posição. É a base de todos os percentuais (%PL).')}
+        ${H.cota ? kpi('Valor da cota', 'R$ ' + nf(H.cota, 6), '', false, 'Valor da cota na data-base, conforme o relatório.') : kpi('Ativos', f.carteira.length, 'linhas na carteira', false, 'Quantidade de ativos identificados na carteira.')}
+        ${kpi('Maior emissor', pf(P.maiorEmissor[1]), esc(P.maiorEmissor[0]).slice(0, 22), false, 'Maior concentração por emissor/gestor. Compare com o limite por emissor da Política (CVM 175: IF 20% · cia/fundo 10% · PF/PJ 5%).')}
+        ${kpi('Concentração Top-5', pf(P.top5), 'HHI ' + nf(P.hhi, 3) + ' · N≈' + nf(P.nEfetivo, 1), false, 'Soma dos 5 maiores ativos. HHI = Σ(pesoᵢ²) mede a pulverização; N efetivo = 1/HHI é o nº de posições "equivalentes".')}
+        ${kpi('Exterior', pf(P.exteriorPct), 'teto ' + pf(Engine.EXTERIOR_TETO[pol.publicoAlvo] || 100, 0), false, 'Exposição a ativos no exterior. Teto por público-alvo: varejo 20% · qualificado 40% · profissional 100% (CVM 175).')}
+        ${kpi('Liquidez D+' + pol.resgateDias, pf(P.liqCum(pol.resgateDias)), 'caixa D+0 ' + pf(P.caixaPct), false, 'Percentual do PL conversível dentro do prazo de resgate (D+' + pol.resgateDias + '). "Caixa D+0" é a parcela de liquidez imediata.')}
       </div></div></div>`;
 
     // Alocação por classe
@@ -1430,7 +1459,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
     return html;
   }
 
-  const kpi = (label, val, sub, accent) => `<div class="kpi ${accent ? 'accent' : ''}"><div class="k-label">${label}</div><div class="k-value">${val}</div>${sub ? `<div class="k-sub">${sub}</div>` : ''}</div>`;
+  const kpi = (label, val, sub, accent, tip) => `<div class="kpi ${accent ? 'accent' : ''}"><div class="k-label">${label}${tip ? help(tip) : ''}</div><div class="k-value">${val}</div>${sub ? `<div class="k-sub">${sub}</div>` : ''}</div>`;
 
   function allocBar(entries) {
     const tot = entries.reduce((s, [, v]) => s + Math.max(0, v), 0) || 100;
@@ -1461,7 +1490,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
 
   function carteiraTable(f) {
     const norm = Engine.normalizarCarteira(f);
-    let h = `<div class="panel"><div class="panel-head"><div class="ph-text"><h2>Carteira</h2><p>${norm.length} ativos · ordenados por peso</p></div></div><div class="panel-body tight"><div class="table-wrap"><table class="data">
+    let h = `<div class="panel"><div class="panel-head"><div class="ph-text"><h2>Carteira${help('Ativos extraídos do relatório com classe, estratégia, %PL, valor financeiro, liquidez (D+N) e emissor/gestor. É a base dos cenários e de todas as checagens.')}</h2><p>${norm.length} ativos · ordenados por peso</p></div></div><div class="panel-body tight"><div class="table-wrap"><table class="data">
       <thead><tr><th>Ativo</th><th>Classe</th><th>Estratégia</th><th class="num">%PL</th><th class="num">Financeiro</th><th class="num">Liquidez</th><th>Emissor/gestor</th></tr></thead><tbody>`;
     norm.slice().sort((a, b) => b.pesoAtual - a.pesoAtual).forEach(hd => {
       h += `<tr><td><b>${esc(hd.nome)}</b></td><td>${esc(hd.classe)}</td><td class="small muted">${esc(hd.subclasseAtivo || hd.subclasse)}</td>
@@ -1791,7 +1820,8 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
         <select class="select" id="add-ativo" style="flex:1;min-width:220px"><option value="">+ Incluir ativo do Quantum Axis…</option>
           ${cands.map(q => `<option value="${esc(q.nome)}">${esc(q.nome)}${q.classe ? ' — ' + esc(q.classe) : ''}</option>`).join('')}</select>
         <input class="input" id="add-peso" type="number" step="0.5" placeholder="peso %" style="width:110px">
-        <button class="btn btn-accent btn-sm" id="add-ativo-btn">Incluir</button></div>`;
+        <button class="btn btn-accent btn-sm" id="add-ativo-btn">Incluir</button>
+        ${help('Escolha um fundo do universo importado do Quantum Axis e um peso-alvo. O ativo entra no cenário como INCLUIR, já com métricas (vol, liquidez) para as checagens. Só aparecem fundos que ainda não estão na carteira.')}</div>`;
     } else {
       addBar = `<div class="review-hint">Importe a planilha do <b>Quantum Axis</b> (aba Métricas) para incluir novos ativos com métricas e liquidez. Ou zere o peso de um ativo para excluí-lo.</div>`;
     }
@@ -1837,7 +1867,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
     const trades = allH.map(h => ({ nome: h.nome, novo: h.novo, d: (pesos[h.key] - h.pesoAtual), rs: (pesos[h.key] - h.pesoAtual) / 100 * pl }))
       .filter(t => Math.abs(t.d) > 0.01).sort((a, b) => Math.abs(b.rs) - Math.abs(a.rs));
     if (!trades.length) return `<div class="panel"><div class="panel-body"><div class="empty-state"><div class="es-ico">≡</div><h3>Sem ordens</h3><div class="small">O cenário é idêntico à posição atual.</div></div></div></div>`;
-    let h = `<div class="panel"><div class="panel-head"><div class="ph-text"><h2>Ordens do pré-trade</h2><p>${trades.length} movimentações para atingir o cenário</p></div></div><div class="panel-body tight"><div class="table-wrap"><table class="data"><thead><tr><th>Ativo</th><th>Operação</th><th class="num">Δ %PL</th><th class="num">Financeiro</th></tr></thead><tbody>`;
+    let h = `<div class="panel"><div class="panel-head"><div class="ph-text"><h2>Ordens do pré-trade${help('As compras/vendas necessárias para sair da posição atual e chegar ao cenário. Δ%PL é a variação de peso; o financeiro é Δ%PL × patrimônio do fundo.')}</h2><p>${trades.length} movimentações para atingir o cenário</p></div></div><div class="panel-body tight"><div class="table-wrap"><table class="data"><thead><tr><th>Ativo</th><th>Operação</th><th class="num">Δ %PL</th><th class="num">Financeiro</th></tr></thead><tbody>`;
     trades.forEach(t => {
       const op = t.d > 0 ? (t.novo ? 'INCLUIR' : 'COMPRA') : 'VENDA';
       h += `<tr><td><b>${esc(t.nome)}</b></td><td><span class="badge ${t.d > 0 ? 'badge-ok' : 'badge-block'}"><span class="dot"></span>${op}</span></td>
@@ -1875,10 +1905,10 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
       <div class="notice notice-${veredito}" style="margin-bottom:16px"><span class="n-ico">${veredito === 'block' ? '⛔' : veredito === 'warn' ? '⚠' : '✓'}</span>
         <div><b>${vtxt}.</b> ${cf.ok} conforme · ${cf.alerta} alerta · ${cf.bloqueio} bloqueio · ${cf.na} sem dados. O parecer considera a checagem automática e a atestação do checklist procedural.</div></div>
       <div class="kpi-grid">
-        ${kpi('Conforme', cf.ok, 'regras OK')}
-        ${kpi('Alertas', cf.alerta, 'revisar', cf.alerta > 0)}
-        ${kpi('Bloqueios', cf.bloqueio, 'impeditivos', cf.bloqueio > 0)}
-        ${kpi('Sem dados', cf.na, 'requer input')}
+        ${kpi('Conforme', cf.ok, 'regras OK', false, 'Regras automáticas dentro do limite.')}
+        ${kpi('Alertas', cf.alerta, 'revisar', cf.alerta > 0, 'Pontos de atenção que não impedem a ordem, mas devem ser revisados e justificados.')}
+        ${kpi('Bloqueios', cf.bloqueio, 'impeditivos', cf.bloqueio > 0, 'Violações de limite duro (bloqueante). Não liberar a ordem sem enquadrar ou reduzir a exposição.')}
+        ${kpi('Sem dados', cf.na, 'requer input', false, 'Regras que não puderam ser calculadas por falta de insumo (ex.: métricas do Quantum Axis, classificação de emissor).')}
       </div></div></div>`;
 
     // resultados por categoria
@@ -1890,7 +1920,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
       cats[cat].forEach(r => {
         const b = statusBadge(r.status);
         html += `<div class="rule-row"><div class="r-status">${b}</div>
-          <div class="r-main"><div class="r-name">${esc(r.nome)}</div><div class="r-desc">${esc(r.msg)}</div><div class="r-src">${esc(r.fonte)}</div></div>
+          <div class="r-main"><div class="r-name">${esc(r.nome)}${RULE_HELP[r.id] ? help(RULE_HELP[r.id]) : ''}</div><div class="r-desc">${esc(r.msg)}</div><div class="r-src">${esc(r.fonte)}</div></div>
           <div class="r-value"><div class="rv-actual">${esc(r.atual)}</div><div class="rv-limit">${esc(r.limite)}</div></div></div>`;
       });
       html += `</div></div>`;
@@ -1901,7 +1931,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
     Engine.CHECKLIST.forEach(c => {
       const on = !!chk[c.id];
       html += `<div class="rule-row"><div class="r-status"><input type="checkbox" data-chk="${c.id}" ${on ? 'checked' : ''} style="width:20px;height:20px;accent-color:var(--purple)"></div>
-        <div class="r-main"><div class="r-name">${esc(c.nome)}</div><div class="r-src">${esc(c.fonte)}</div></div>
+        <div class="r-main"><div class="r-name">${esc(c.nome)}${CHECK_HELP[c.id] ? help(CHECK_HELP[c.id]) : ''}</div><div class="r-src">${esc(c.fonte)}</div></div>
         <div class="r-value">${on ? '<span class="badge badge-ok"><span class="dot"></span>Atestado</span>' : '<span class="badge badge-muted"><span class="dot"></span>Pendente</span>'}</div></div>`;
     });
     html += `</div></div>`;
@@ -1928,7 +1958,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
   }
   function cenarioComparacao(f, pol) {
     const cs = cenarios();
-    let h = `<div class="panel"><div class="panel-head"><div class="ph-text"><h2>Comparação de cenários</h2><p>Enquadramento e KPIs lado a lado</p></div></div><div class="panel-body tight"><div class="table-wrap"><table class="data"><thead><tr><th>Cenário</th><th class="num">Bloqueios</th><th class="num">Alertas</th><th class="num">Maior emissor</th><th class="num">Top-5</th><th class="num">HHI</th><th class="num">Liq. D+${pol.resgateDias}</th>${STATE.quantum ? '<th class="num">Vol est.</th>' : ''}</tr></thead><tbody>`;
+    let h = `<div class="panel"><div class="panel-head"><div class="ph-text"><h2>Comparação de cenários${help('Coloca todos os cenários lado a lado — nº de bloqueios/alertas e os principais indicadores — para escolher a alocação que melhor equilibra enquadramento, liquidez e risco.')}</h2><p>Enquadramento e KPIs lado a lado</p></div></div><div class="panel-body tight"><div class="table-wrap"><table class="data"><thead><tr><th>Cenário</th><th class="num">Bloqueios</th><th class="num">Alertas</th><th class="num">Maior emissor</th><th class="num">Top-5</th><th class="num">HHI</th><th class="num">Liq. D+${pol.resgateDias}</th>${STATE.quantum ? '<th class="num">Vol est.</th>' : ''}</tr></thead><tbody>`;
     cs.forEach(c => {
       const pesos = c.base ? null : c.pesos;
       const R = Engine.avaliar(f, pesos, STATE.quantum && STATE.quantum.index, pol, c.extra);
@@ -1943,7 +1973,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
   }
   function ruleReference() {
     const R = typeof RULE_REFERENCE !== 'undefined' ? RULE_REFERENCE : [];
-    let h = `<div class="panel"><div class="panel-head"><div class="ph-text"><h2>Catálogo regulatório de referência</h2><p>${R.length} regras de pré-trade mapeadas (ANBIMA · CVM 175). As checagens automáticas acima cobrem os itens quantificáveis a partir dos dados importados.</p></div></div><div class="panel-body tight"><div class="table-wrap"><table class="data"><thead><tr><th>Regra</th><th>Categoria</th><th>Severidade</th><th>Limite padrão</th><th>Fonte</th></tr></thead><tbody>`;
+    let h = `<div class="panel"><div class="panel-head"><div class="ph-text"><h2>Catálogo regulatório de referência${help('O mapa completo das regras de pré-trade da ANBIMA e da CVM 175. As checagens automáticas acima cobrem os itens que dá para calcular com os dados importados; este catálogo mostra o universo completo, para conferência.')}</h2><p>${R.length} regras de pré-trade mapeadas (ANBIMA · CVM 175). As checagens automáticas acima cobrem os itens quantificáveis a partir dos dados importados.</p></div></div><div class="panel-body tight"><div class="table-wrap"><table class="data"><thead><tr><th>Regra</th><th>Categoria</th><th>Severidade</th><th>Limite padrão</th><th>Fonte</th></tr></thead><tbody>`;
     R.forEach(r => {
       h += `<tr><td><b>${esc(r.name)}</b></td><td class="small">${esc(r.category)}</td>
         <td>${r.severity === 'bloqueante' ? '<span class="badge badge-block">bloqueante</span>' : r.severity === 'alerta' ? '<span class="badge badge-warn">alerta</span>' : '<span class="badge badge-muted">info</span>'}</td>
