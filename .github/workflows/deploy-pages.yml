@@ -1,0 +1,61 @@
+name: Deploy dashboard to GitHub Pages
+
+# Publica o dashboard (index.html) no GitHub Pages a cada push no branch de
+# trabalho. Deploy determinístico e com logs — substitui o build legado por
+# branch, que ficava travando silenciosamente.
+
+on:
+  push:
+    branches: [claude/dashboard-pre-trade-f5079e]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Um deploy por vez; cancela builds em andamento se chegar um push novo.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build (gera index.html autocontido)
+        run: node build.mjs
+
+      - name: Prepara o diretório do site
+        run: |
+          rm -rf _site
+          mkdir -p _site
+          cp index.html _site/index.html
+          touch _site/.nojekyll
+
+      # enablement: true configura o Pages em modo "GitHub Actions"
+      # automaticamente, sem precisar mexer em Settings.
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
