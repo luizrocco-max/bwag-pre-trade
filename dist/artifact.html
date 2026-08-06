@@ -1491,6 +1491,15 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
       </div>
       <div style="margin-top:4px">${f ? `${f.formato === 'bradesco' ? 'Bradesco' : 'BTG'} · posição ${f.header.cotaData || '—'} · PL ${moneyK(f.header.patrimonio)} · ${STATE.fundos.length} fundo(s)` : 'Selecione um fundo'}</div>`;
   }
+  function removerFundo(nome) {
+    const i = STATE.fundos.findIndex(f => f.header.fundo === nome);
+    if (i < 0) return;
+    STATE.fundos.splice(i, 1);
+    delete STATE.cenarios[nome]; delete STATE.cenarioAtivo[nome];
+    if (STATE.fundoAtivo === nome) STATE.fundoAtivo = STATE.fundos.length ? STATE.fundos[0].header.fundo : null;
+    persist(); renderStepper(); rerenderActive();
+    toast('Fundo removido: ' + nome, 'ok');
+  }
   function limparTudo() {
     if (!window.confirm('Recomeçar? Isso remove os fundos importados, as métricas e os cenários. A sua política e o De-Para são mantidos.')) return;
     STATE.fundos = []; STATE.fundoAtivo = null; STATE.quantum = null; STATE.cenarios = {}; STATE.cenarioAtivo = {};
@@ -1518,8 +1527,10 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
       html += STATE.fundos.map(fd => {
         const on = fd.header.fundo === STATE.fundoAtivo;
         return `<button class="btn ${on ? 'btn-primary' : 'btn-outline'} btn-sm" data-fundo="${esc(fd.header.fundo)}">
-          ${esc(fd.header.fundo)} <span class="badge ${fd.formato === 'bradesco' ? 'badge-info' : 'badge-muted'}" style="margin-left:6px">${fd.formato === 'bradesco' ? 'Bradesco' : 'BTG'}</span></button>`;
+          ${esc(fd.header.fundo)} <span class="badge ${fd.formato === 'bradesco' ? 'badge-info' : 'badge-muted'}" style="margin-left:6px">${fd.formato === 'bradesco' ? 'Bradesco' : 'BTG'}</span>
+          <span data-delfundo="${esc(fd.header.fundo)}" title="Remover este fundo" style="margin-left:8px;opacity:.55;cursor:pointer;font-weight:700">✕</span></button>`;
       }).join('');
+      html += `<span class="small muted" style="align-self:center;margin-left:4px">— clique no fundo para ativar; no ✕ para remover</span>`;
       html += `</div>`;
     }
     html += `</div></div>`;
@@ -2385,8 +2396,9 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
   }
 
   document.addEventListener('click', (e) => {
-    const t = e.target.closest('[data-step],[data-fundo],[data-cen],[data-del],[data-gen],[data-pub],[data-rmativo],[data-zerar],#btn-exemplo,#q-exemplo,#q-modelo,#go-pretrade,#pol-reset,#cen-normalizar,#pt-print,#add-ativo-btn,#topbar-reset,#cfg-export');
+    const t = e.target.closest('[data-step],[data-fundo],[data-delfundo],[data-cen],[data-del],[data-gen],[data-pub],[data-rmativo],[data-zerar],#btn-exemplo,#q-exemplo,#q-modelo,#go-pretrade,#pol-reset,#cen-normalizar,#pt-print,#add-ativo-btn,#topbar-reset,#cfg-export');
     if (!t) return;
+    if (t.dataset.delfundo != null) return removerFundo(t.dataset.delfundo);
     if (t.id === 'topbar-reset') return limparTudo();
     if (t.id === 'cfg-export') return exportarConfig();
     if (t.id === 'add-ativo-btn') return incluirAtivo();
@@ -2398,7 +2410,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
     if (t.id === 'q-exemplo') return carregarQuantumExemplo();
     if (t.id === 'q-modelo') return baixarModeloQuantum();
     if (t.id === 'pt-print') return gerarParecer();
-    if (t.dataset.fundo) { STATE.fundoAtivo = t.dataset.fundo; renderStepper(); rerenderActive(); return; }
+    if (t.dataset.fundo) { STATE.fundoAtivo = t.dataset.fundo; persist(); renderStepper(); rerenderActive(); return; }
     if (t.dataset.del) { const cs = cenarios(); const i = cs.findIndex(c => c.id === t.dataset.del); if (i >= 0) cs.splice(i, 1); STATE.cenarioAtivo[fundo().header.fundo] = 'atual'; rerenderActive(); return; }
     if (t.dataset.cen) { STATE.cenarioAtivo[fundo().header.fundo] = t.dataset.cen; rerenderActive(); return; }
     if (t.dataset.gen) return gerarCenario(t.dataset.gen);
@@ -2414,7 +2426,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
     else if (t.id === 'file-cfg') { if (t.files.length) importarConfig(t.files[0]); t.value = ''; }
     else if (t.id === 'pol-preset') { const f = fundo(); const keep = policy().publicoAlvo; const p = { chave: t.value, ...JSON.parse(JSON.stringify(Engine.PRESETS[t.value])) }; p.publicoAlvo = keep; STATE.politicas[f.header.fundo] = p; persist(); rerenderActive(); }
     else if (t.id === 'pt-cenario') { STATE.cenarioAtivo[fundo().header.fundo] = t.value; rerenderActive(); }
-    else if (t.id === 'topbar-fund') { STATE.fundoAtivo = t.value; renderStepper(); rerenderActive(); }
+    else if (t.id === 'topbar-fund') { STATE.fundoAtivo = t.value; persist(); renderStepper(); rerenderActive(); }
     else if (t.dataset && t.dataset.chk) { const f = fundo(); (STATE.checklist[f.header.fundo] = STATE.checklist[f.header.fundo] || {})[t.dataset.chk] = t.checked; persist(); renderPretrade(); }
     else if (t.dataset && t.dataset.pol) { const v = parseFloat(String(t.value).replace(',', '.')); if (!isNaN(v)) policy()[t.dataset.pol] = v; persist(); setTimeout(rerenderActive, 0); }
     else if (t.dataset && t.dataset.polTxt) { policy()[t.dataset.polTxt] = t.value || null; persist(); rerenderActive(); }
