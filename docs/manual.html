@@ -242,10 +242,11 @@
           <li><strong>BTG</strong> — “Relatório de Performance Diário / Acompanhamento de FI (AcompFI)”.</li>
           <li><strong>Bradesco</strong> — “Carteira Diária”.</li>
         </ul>
-        <p>Cada fundo vira um botão no topo; clique para alternar o fundo ativo.</p>
+        <p>Cada fundo vira um botão. <strong>Clique no nome</strong> para deixá-lo ativo; clique no <strong>✕</strong> ao lado do nome para <strong>remover só aquele fundo</strong> (os cenários dele saem junto; os demais fundos continuam intactos).</p>
       </div>
     </div>
     <p>Ao selecionar um fundo, o dashboard mostra: <strong>patrimônio e cota</strong>, <strong>alocação por classe</strong>, <strong>concentração por emissor/gestor</strong>, a <strong>escada de liquidez</strong> (quando o relatório traz) e a <strong>carteira completa</strong> com %PL, valor, liquidez (D+N) e emissor.</p>
+    <div class="call tip"><span class="lbl">Trocar de fundo sem recomeçar</span>No canto superior direito há um <strong>seletor de fundo</strong>: troque o fundo ativo de qualquer aba, sem perder nada. O botão <strong>Limpar</strong> ao lado zera fundos, métricas e cenários (mas preserva sua política e o De-Para). Para apagar apenas um fundo, prefira o <strong>✕</strong> no botão dele.</div>
     <div class="call warn"><span class="lbl">Como saber se leu certo</span>A soma dos <strong>%PL da carteira</strong> deve ficar em torno de <strong>100%</strong>. Se destoar muito, o layout do relatório pode ter mudado — reporte à equipe responsável pela ferramenta para ajuste do leitor.</div>
     <p class="mono" style="font-size:13px;color:var(--muted)">Observação: a Carteira Diária do Bradesco não traz a escada de liquidez detalhada. Nesse formato, a liquidez por ativo é estimada (ações D+2; fundos pelo prazo de resgate da política) — e fica precisa quando você importa a cotização do Quantum (passo 2).</p>
     </div>
@@ -386,7 +387,8 @@
     <h2>Perguntas frequentes</h2>
     <div class="faq">
       <details><summary>Meus dados vão para algum servidor?</summary><div class="body"><p>Não. Tudo roda no seu navegador — a leitura dos PDFs, da planilha e todos os cálculos. Nada é enviado para fora da máquina.</p></div></details>
-      <details><summary>Posso carregar vários fundos ao mesmo tempo?</summary><div class="body"><p>Sim. Arraste vários PDFs de uma vez; cada fundo vira um botão no topo da aba Posição. Política, cenários e checklist são independentes por fundo.</p></div></details>
+      <details><summary>Posso carregar vários fundos ao mesmo tempo?</summary><div class="body"><p>Sim. Arraste vários PDFs de uma vez; cada fundo vira um botão no topo da aba Posição. Política, cenários e checklist são independentes por fundo. Troque o fundo ativo pelo botão do fundo ou pelo <strong>seletor no canto superior direito</strong>.</p></div></details>
+      <details><summary>Como removo só um fundo, sem apagar o resto?</summary><div class="body"><p>Na aba Posição, clique no <strong>✕</strong> ao lado do nome do fundo. Ele sai (com os cenários dele); os outros fundos, a política e o De-Para permanecem. Para zerar tudo de uma vez, use <strong>Limpar</strong> na barra do topo.</p></div></details>
       <details><summary>A cobertura do Quantum ficou baixa. E agora?</summary><div class="body"><p>Abra a tabela <strong>Casamento De-Para</strong> (aba Métricas) e escolha manualmente o fundo certo para os ativos que não casaram. A cobertura sobe e o vol/VaR/liquidez ficam fiéis.</p></div></details>
       <details><summary>Por que a CNPJ não “casa” a carteira sozinha?</summary><div class="body"><p>Porque os relatórios de posição (BTG/Bradesco) não trazem CNPJ por ativo — só nome/código. A CNPJ do Quantum serve para identificar e deduplicar os fundos; o casamento com a carteira é por nome (ou manual, no De-Para).</p></div></details>
       <details><summary>Um bloqueio de liquidez apareceu, mas o prazo do fundo é maior. Como ajusto?</summary><div class="body"><p>Na aba <strong>Política</strong>, ajuste <strong>Prazo de resgate (D+)</strong> para o prazo real do fundo e, se preciso, o <strong>Liquidez mín. no resgate (%)</strong>. O parecer recalcula na hora.</p></div></details>
