@@ -31,6 +31,7 @@
     return money(n);
   };
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const fmtCnpj = (s) => { const d = String(s || '').replace(/\D/g, ''); return d.length === 14 ? d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5') : (s || ''); };
   const SEG = ['#3D35CE', '#1C0845', '#2E8B8B', '#B45309', '#1B7340', '#7A73E8', '#C2410C', '#0E7490', '#9B9B9B', '#6D28D9'];
 
   function toast(msg, kind) {
@@ -225,13 +226,13 @@
   function renderInput() {
     const f = fundo();
     let html = `<div class="panel"><div class="panel-head">
-      <div class="ph-text"><h2>Posição dos fundos${help('Arraste os PDFs dos fundos. O app detecta se é BTG (Relatório de Performance Diário/AcompFI) ou Bradesco (Carteira Diária) e extrai carteira, alocação por classe, concentração e liquidez. Você pode carregar vários fundos de uma vez.')}</h2><p>Importe o <b>Relatório de Performance Diário (BTG)</b> ou a <b>Carteira Diária (Bradesco)</b>. O formato é detectado automaticamente.</p></div>
+      <div class="ph-text"><h2>Posição dos fundos${help('Arraste os PDFs dos fundos. O app detecta o formato: BTG (Relatório de Performance Diário/AcompFI ou Resumo da Carteira) ou Bradesco (Carteira Diária), e extrai carteira, alocação por classe, concentração e liquidez. O Resumo da Carteira traz o CNPJ de cada fundo investido, usado no casamento com o Quantum. Você pode carregar vários fundos de uma vez.')}</h2><p>Importe o <b>Relatório de Performance Diário</b> ou o <b>Resumo da Carteira</b> (BTG), ou a <b>Carteira Diária</b> (Bradesco). O formato é detectado automaticamente.</p></div>
       <div class="ph-actions">
         <button class="btn btn-outline btn-sm" id="btn-exemplo">Carregar exemplo</button>
         <label class="btn btn-primary btn-sm">Importar PDF<input type="file" id="file-pdf" accept="application/pdf,.pdf" multiple hidden></label>
       </div></div><div class="panel-body">`;
     if (!STATE.fundos.length) {
-      html += dropzoneHTML('dz-pdf', 'Solte os PDFs aqui ou clique para selecionar', 'Aceita múltiplos fundos de uma vez', 'PDF · BTG AcompFI · Bradesco Carteira Diária');
+      html += dropzoneHTML('dz-pdf', 'Solte os PDFs aqui ou clique para selecionar', 'Aceita múltiplos fundos de uma vez', 'PDF · BTG AcompFI · BTG Resumo da Carteira · Bradesco Carteira Diária');
     } else {
       html += `<div class="row wrap" style="gap:8px;margin-bottom:6px">`;
       html += STATE.fundos.map(fd => {
@@ -465,7 +466,7 @@
     return { headers, rows, janela: '12 meses' };
   }
   function buildQuantumIndex(rows, cols) {
-    const list = [], exact = {}, byNome = {};
+    const list = [], exact = {}, byNome = {}, byCnpj = {};
     for (const r of rows) {
       const nome = cols.nome != null ? r[cols.nome] : null;
       if (!nome) continue;
@@ -483,8 +484,10 @@
       };
       o.__toks = new Set(Engine.normNome(nome).split(' ').filter(t => t.length > 2));
       list.push(o); exact[Engine.normNome(nome)] = o; byNome[nome] = o;
+      const ck = (o.cnpj || '').toString().replace(/\D/g, '');
+      if (ck.length === 14) byCnpj[ck] = o;
     }
-    return { list, exact, byNome, overrides: STATE.depara || {} };
+    return { list, exact, byNome, byCnpj, overrides: STATE.depara || {} };
   }
   function coberturaQuantum() {
     const f = fundo(); if (!f || !STATE.quantum) return '—';
@@ -503,10 +506,11 @@
       const auto = Engine.autoMatch(hd, STATE.quantum.index);
       const manual = STATE.depara[hd.nome];
       const eff = Engine.casarQuantum(hd, STATE.quantum.index);
+      const mtype = Engine.matchType(hd, STATE.quantum.index);
       const origem = manual !== undefined
         ? (manual === '__none__' ? '<span class="match-none">não casar</span>' : '<span class="match-manual">manual</span>')
-        : (auto ? '<span class="match-auto">automático</span>' : '<span class="match-none">sem match</span>');
-      h += `<tr><td><b>${esc(hd.nome)}</b><div class="small muted">${esc(hd.classe)} · D+${hd.liqDias}</div></td>
+        : (auto ? (mtype === 'cnpj' ? '<span class="match-auto" title="casado pelo CNPJ">CNPJ</span>' : '<span class="match-auto" title="casado pelo nome">nome</span>') : '<span class="match-none">sem match</span>');
+      h += `<tr><td><b>${esc(hd.nome)}</b><div class="small muted">${esc(hd.classe)} · D+${hd.liqDias}${hd.cnpj ? ' · ' + esc(fmtCnpj(hd.cnpj)) : ''}</div></td>
         <td><select class="depara-sel${manual !== undefined ? ' manual' : ''}" data-depara="${esc(hd.nome)}">
           <option value="">— automático${auto ? ': ' + esc(auto.nome) : ' (nenhum)'}</option>
           <option value="__none__" ${manual === '__none__' ? 'selected' : ''}>✕ Não casar</option>
@@ -938,7 +942,8 @@
         const ix = STATE.fundos.findIndex(x => x.header.fundo === fund.header.fundo);
         if (ix >= 0) STATE.fundos[ix] = fund; else STATE.fundos.push(fund);
         STATE.fundoAtivo = fund.header.fundo;
-        toast(`${fund.header.fundo} importado (${fund.formato === 'bradesco' ? 'Bradesco' : 'BTG'}, ${fund.carteira.length} ativos)`, 'ok');
+        const fmtLbl = fund.formato === 'bradesco' ? 'Bradesco' : fund.formato === 'resumo' ? 'BTG Resumo da Carteira' : 'BTG';
+        toast(`${fund.header.fundo} importado (${fmtLbl}, ${fund.carteira.length} ativos)`, 'ok');
       } catch (e) { console.error(e); toast('Erro ao ler ' + file.name + ': ' + e.message, 'err'); }
     }
     renderStepper(); rerenderActive();

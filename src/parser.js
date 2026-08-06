@@ -306,9 +306,108 @@
     };
   }
 
+  // =====================================================================
+  //  BTG — "Resumo da Carteira" (fundo de fundos; CNPJ por posição)
+  //  Layout tabular por colunas; números em formato US ($, vírgula=milhar).
+  // =====================================================================
+  function moneyNum(s) {
+    if (s == null) return null;
+    s = String(s).trim();
+    const neg = /^\(.*\)$/.test(s);
+    s = s.replace(/[$()]/g, '').replace(/,/g, '').trim();   // vírgula = separador de milhar
+    if (s === '' || s === '-') return null;
+    const v = parseFloat(s);
+    if (isNaN(v)) return null;
+    return neg ? -v : v;
+  }
+  // classe provisória do fundo investido pelo nome (o CNPJ + Quantum refinam depois)
+  function classeResumo(nome) {
+    const u = (nome || '').toUpperCase();
+    if (/\bRF\b|\bCDB\b|RENDA FIXA|CR[ÉE]D|DEBENT|\bLFT\b|\bLTN\b|\bNTN|COMPROMISS/.test(u)) return { classe: 'Renda Fixa', sub: 'Fundo de renda fixa' };
+    if (/\bFIA\b|FICFIA|FC ?FIA|FCFIA|A[ÇC][ÕO]ES|ACOES|IBOV|EQUITY|\bLB\b|LONG ?BIAS/.test(u)) return { classe: 'Renda Variável', sub: 'Fundo de ações' };
+    if (/\bFIM\b|MULT|MACRO|TOTAL ?RET|RETORNO ABS|HEDGE|\bMM\b/.test(u)) return { classe: 'Retorno Absoluto', sub: 'Fundo multimercado' };
+    return { classe: 'Renda Variável', sub: 'Fundo investido' };
+  }
+  function assembleResumo(pages) {
+    // ---------- cabeçalho (página 1)
+    let fundo = null, dataPos = null, patrimonio = null, cota = null;
+    const L1 = linesOf(pages[0] || []);
+    if (L1[0]) fundo = clean(L1[0].text.replace(/Posi[çc][ãa]o:.*$/i, ''));
+    for (const ln of L1) {
+      const t = ln.text;
+      let m = t.match(/Posi[çc][ãa]o:\s*([\d/]+)/); if (m && !dataPos) dataPos = m[1];
+      m = t.match(/^PATRIM[ÔO]NIO\s+\$?([\d.,]+)/i); if (m && patrimonio == null) patrimonio = moneyNum(m[1]);
+      m = t.match(/COTA L[ÍI]QUIDA\s+([\d.,]+)/i); if (m && cota == null) cota = moneyNum(m[1]);
+    }
+    // ---------- posições (todas as páginas), por seção e âncoras de coluna
+    const carteira = [];
+    let section = null;
+    for (const items of pages) {
+      for (const ln of linesOf(items)) {
+        const first = ln.items[0]; if (!first) continue;
+        const t = ln.text.trim();
+        // cabeçalhos de seção (linhas curtas, no início da coluna)
+        if (ln.items.length <= 3 && first.x < 60) {
+          if (/^Compromissada\b/i.test(t)) { section = 'comp'; continue; }
+          if (/^Ações\b/i.test(t)) { section = 'acoes'; continue; }
+          if (/^Portf[óo]lio Investido\b/i.test(t)) { section = 'port'; continue; }
+          if (/^Despesas\b/i.test(t)) { section = null; continue; }
+        }
+        if (!section) continue;
+
+        if (section === 'port') {
+          const cn = tokAt(ln.items, 30, 80, null);
+          if (!cn || !/^\d{14}$/.test(cn.s)) continue;                 // exige CNPJ de 14 dígitos
+          const nome = clean(joinRange(ln.items, 100, 245));
+          const finTok = ln.items.find(i => i.x >= 380 && i.x <= 445 && /\$?[\d,]+\.\d/.test(i.s));
+          const pctTok = tokAt(ln.items, 450, 498, true);
+          if (!nome || !finTok) continue;
+          const cl = classeResumo(nome);
+          carteira.push({ cnpj: cn.s, nome, classe: cl.classe, subclasse: cl.sub, subclasseAtivo: cl.sub,
+            financeiro: moneyNum(finTok.s), pct: pctTok ? toNum(pctTok.s) : null, liquidezVenc: '', emissorGestor: nome });
+        } else if (section === 'acoes') {
+          const pap = tokAt(ln.items, 40, 100, false);
+          if (!pap || !/^[A-Z0-9]{4}\d{1,2}$/.test(pap.s)) continue;   // ticker tipo BOVA11
+          const finTok = ln.items.find(i => i.x >= 300 && i.x <= 348 && /[\d,]+\.\d/.test(i.s));
+          const pctTok = tokAt(ln.items, 376, 404, true);
+          if (!finTok) continue;
+          carteira.push({ cnpj: null, nome: pap.s, classe: 'Renda Variável', subclasse: 'AÇÕES', subclasseAtivo: 'Ações',
+            financeiro: moneyNum(finTok.s), pct: pctTok ? toNum(pctTok.s) : null, liquidezVenc: 'D+2', emissorGestor: pap.s });
+        } else if (section === 'comp') {
+          if (!/COMPROMISSADA/i.test(t)) continue;
+          const finTok = ln.items.find(i => /^\$[\d,]+\.\d/.test(i.s));
+          if (!finTok) continue;
+          const fin = moneyNum(finTok.s);
+          carteira.push({ cnpj: null, nome: 'Operação Compromissada', classe: 'Renda Fixa', subclasse: 'Compromissada',
+            subclasseAtivo: 'Operação Compromissada', financeiro: fin,
+            pct: patrimonio ? Math.round(fin / patrimonio * 10000) / 100 : null, liquidezVenc: 'D+1', emissorGestor: 'BTG Pactual (compromissada)' });
+        }
+      }
+    }
+    // % do PL de fallback (calcula do financeiro quando a coluna não veio)
+    for (const h of carteira) if (h.pct == null && patrimonio) h.pct = Math.round(h.financeiro / patrimonio * 10000) / 100;
+
+    const porClasse = {};
+    for (const h of carteira) porClasse[h.classe] = (porClasse[h.classe] || 0) + (h.pct || 0);
+    const alocacaoClasse = Object.entries(porClasse).map(([classe, pct]) => ({ classe, pct: Math.round(pct * 100) / 100, valor: null }));
+    const porEmissor = {};
+    for (const h of carteira) { const k = h.emissorGestor || h.nome; porEmissor[k] = (porEmissor[k] || 0) + (h.pct || 0); }
+    const concentracao = Object.entries(porEmissor).map(([nome, pct]) => ({ nome, pct: Math.round(pct * 100) / 100 }))
+      .sort((a, b) => b.pct - a.pct).slice(0, 20);
+    const somaPL = carteira.reduce((s, h) => s + (h.pct || 0), 0);
+    return {
+      formato: 'resumo',
+      header: { fundo, geradoEm: null, cotaData: dataPos, cota, patrimonio },
+      alocacaoClasse, alocacaoSubclasse: [], concentracao, liquidez: [], carteira,
+      diagnostico: { holdings: carteira.length, somaPctPL: Math.round(somaPL * 100) / 100, classes: alocacaoClasse.length, formato: 'resumo' },
+    };
+  }
+
   function detectarFormato(pages) {
-    const t = (pages[0] || []).map(i => i.s).join(' ');
-    if (/Carteira Di[áa]ria/i.test(t) || /Data de Posi[çc][ãa]o/i.test(t)) return 'bradesco';
+    const t0 = (pages[0] || []).map(i => i.s).join(' ');
+    const tAll = pages.reduce((a, p) => a + ' ' + p.map(i => i.s).join(' '), '');
+    if (/Resumo da Carteira/i.test(t0) && /Portf[óo]lio Investido|\bCnpj\b|QUANTIDADE DE COTAS/i.test(tAll)) return 'resumo';
+    if (/Carteira Di[áa]ria/i.test(t0) || /Data de Posi[çc][ãa]o/i.test(t0)) return 'bradesco';
     return 'btg';
   }
 
@@ -354,7 +453,10 @@
   }
 
   function assemble(pages) {
-    return detectarFormato(pages) === 'bradesco' ? assembleBradesco(pages) : assembleBTG(pages);
+    const fmt = detectarFormato(pages);
+    if (fmt === 'resumo') return assembleResumo(pages);
+    if (fmt === 'bradesco') return assembleBradesco(pages);
+    return assembleBTG(pages);
   }
 
   async function parse(pdfjsLib, data) {
@@ -362,6 +464,6 @@
     return assemble(await pagesOf(pdfjsLib, buf));
   }
 
-  return { parse, assemble, assembleBTG, assembleBradesco, detectarFormato,
+  return { parse, assemble, assembleBTG, assembleBradesco, assembleResumo, detectarFormato,
     _internals: { linesOf, parseHeader, parseLiquidez, parseClasse, parseSubclasse, parseConcentracao, parseCarteira, toNum, isNum } };
 });

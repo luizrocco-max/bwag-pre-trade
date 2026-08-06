@@ -120,6 +120,7 @@
       return {
         key: h.nome + '#' + i, nome: h.nome, classe: h.classe || 'Outros', subclasse: h.subclasse || '',
         subclasseAtivo: h.subclasseAtivo || '', pesoAtual: h.pct || 0, financeiro: h.financeiro || 0,
+        cnpj: (h.cnpj || '').toString().replace(/\D/g, '') || null,
         emissor: emissor || h.nome, grupo: (emissor || h.nome).split(' ').slice(0, 2).join(' '),
         liqDias: liq, exterior, publico, credito, liquidezVenc: h.liquidezVenc || (isAcao ? 'D+2' : ''),
       };
@@ -133,13 +134,17 @@
   // casamento automático (por nome), ignorando o De-Para manual
   function autoMatch(holding, quantumIndex) {
     if (!quantumIndex) return null;
+    // 1) casamento por CNPJ (exato e mais confiável), quando disponível dos dois lados
+    if (holding.cnpj && quantumIndex.byCnpj && quantumIndex.byCnpj[holding.cnpj]) return quantumIndex.byCnpj[holding.cnpj];
+    // 2) casamento por nome (fallback)
     const key = normNome(holding.nome);
     if (!key) return null;
     if (quantumIndex.exact[key]) return quantumIndex.exact[key];
     const toks = new Set(key.split(' ').filter(t => t.length > 2));
     let best = null, bestScore = 0;
     for (const q of quantumIndex.list) {
-      const qt = q.__toks; let s = 0;
+      const qt = q.__toks; if (!qt) continue;
+      let s = 0;
       for (const t of toks) if (qt.has(t)) s++;
       const score = s / Math.max(1, toks.size);
       if (score > bestScore) { bestScore = score; best = q; }
@@ -154,6 +159,12 @@
       if (ov !== undefined) return ov === '__none__' ? null : ((quantumIndex.byNome && quantumIndex.byNome[ov]) || null);
     }
     return autoMatch(holding, quantumIndex);
+  }
+  // como o casamento automático foi obtido: 'cnpj' | 'nome' | null (usado só p/ rotular)
+  function matchType(holding, quantumIndex) {
+    if (!quantumIndex || !autoMatch(holding, quantumIndex)) return null;
+    if (holding.cnpj && quantumIndex.byCnpj && quantumIndex.byCnpj[holding.cnpj]) return 'cnpj';
+    return 'nome';
   }
 
   // ------------------------------------------------------------- perfil
@@ -340,5 +351,5 @@
   }
 
   return { PRESETS, PRESET_KEYS: Object.keys(PRESETS), EXTERIOR_TETO, presetPara, presetDe, detectarClasse,
-    normalizarCarteira, perfil, avaliar, AUTO_RULES, CHECKLIST, casarQuantum, autoMatch, normNome, baseISO };
+    normalizarCarteira, perfil, avaliar, AUTO_RULES, CHECKLIST, casarQuantum, autoMatch, matchType, normNome, baseISO };
 });

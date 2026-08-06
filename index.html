@@ -503,7 +503,7 @@ table.pr tr.ok td:first-child { box-shadow: inset 3px 0 0 var(--pos); }
   <footer class="footer">
     <div class="footer-inner">
       <div><b>BWAG</b> · Brazil Wealth Advisory Group · Uso interno · Confidencial</div>
-      <div>Ferramenta de apoio ao enquadramento pré-negociação. Não substitui a análise de compliance. · <span class="footer-ver">versão 2026.08.06.0432</span></div>
+      <div>Ferramenta de apoio ao enquadramento pré-negociação. Não substitui a análise de compliance. · <span class="footer-ver">versão 2026.08.06.1431</span></div>
     </div>
   </footer>
 </div>
@@ -906,9 +906,108 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
     };
   }
 
+  // =====================================================================
+  //  BTG — "Resumo da Carteira" (fundo de fundos; CNPJ por posição)
+  //  Layout tabular por colunas; números em formato US ($, vírgula=milhar).
+  // =====================================================================
+  function moneyNum(s) {
+    if (s == null) return null;
+    s = String(s).trim();
+    const neg = /^\(.*\)$/.test(s);
+    s = s.replace(/[$()]/g, '').replace(/,/g, '').trim();   // vírgula = separador de milhar
+    if (s === '' || s === '-') return null;
+    const v = parseFloat(s);
+    if (isNaN(v)) return null;
+    return neg ? -v : v;
+  }
+  // classe provisória do fundo investido pelo nome (o CNPJ + Quantum refinam depois)
+  function classeResumo(nome) {
+    const u = (nome || '').toUpperCase();
+    if (/\bRF\b|\bCDB\b|RENDA FIXA|CR[ÉE]D|DEBENT|\bLFT\b|\bLTN\b|\bNTN|COMPROMISS/.test(u)) return { classe: 'Renda Fixa', sub: 'Fundo de renda fixa' };
+    if (/\bFIA\b|FICFIA|FC ?FIA|FCFIA|A[ÇC][ÕO]ES|ACOES|IBOV|EQUITY|\bLB\b|LONG ?BIAS/.test(u)) return { classe: 'Renda Variável', sub: 'Fundo de ações' };
+    if (/\bFIM\b|MULT|MACRO|TOTAL ?RET|RETORNO ABS|HEDGE|\bMM\b/.test(u)) return { classe: 'Retorno Absoluto', sub: 'Fundo multimercado' };
+    return { classe: 'Renda Variável', sub: 'Fundo investido' };
+  }
+  function assembleResumo(pages) {
+    // ---------- cabeçalho (página 1)
+    let fundo = null, dataPos = null, patrimonio = null, cota = null;
+    const L1 = linesOf(pages[0] || []);
+    if (L1[0]) fundo = clean(L1[0].text.replace(/Posi[çc][ãa]o:.*$/i, ''));
+    for (const ln of L1) {
+      const t = ln.text;
+      let m = t.match(/Posi[çc][ãa]o:\s*([\d/]+)/); if (m && !dataPos) dataPos = m[1];
+      m = t.match(/^PATRIM[ÔO]NIO\s+\$?([\d.,]+)/i); if (m && patrimonio == null) patrimonio = moneyNum(m[1]);
+      m = t.match(/COTA L[ÍI]QUIDA\s+([\d.,]+)/i); if (m && cota == null) cota = moneyNum(m[1]);
+    }
+    // ---------- posições (todas as páginas), por seção e âncoras de coluna
+    const carteira = [];
+    let section = null;
+    for (const items of pages) {
+      for (const ln of linesOf(items)) {
+        const first = ln.items[0]; if (!first) continue;
+        const t = ln.text.trim();
+        // cabeçalhos de seção (linhas curtas, no início da coluna)
+        if (ln.items.length <= 3 && first.x < 60) {
+          if (/^Compromissada\b/i.test(t)) { section = 'comp'; continue; }
+          if (/^Ações\b/i.test(t)) { section = 'acoes'; continue; }
+          if (/^Portf[óo]lio Investido\b/i.test(t)) { section = 'port'; continue; }
+          if (/^Despesas\b/i.test(t)) { section = null; continue; }
+        }
+        if (!section) continue;
+
+        if (section === 'port') {
+          const cn = tokAt(ln.items, 30, 80, null);
+          if (!cn || !/^\d{14}$/.test(cn.s)) continue;                 // exige CNPJ de 14 dígitos
+          const nome = clean(joinRange(ln.items, 100, 245));
+          const finTok = ln.items.find(i => i.x >= 380 && i.x <= 445 && /\$?[\d,]+\.\d/.test(i.s));
+          const pctTok = tokAt(ln.items, 450, 498, true);
+          if (!nome || !finTok) continue;
+          const cl = classeResumo(nome);
+          carteira.push({ cnpj: cn.s, nome, classe: cl.classe, subclasse: cl.sub, subclasseAtivo: cl.sub,
+            financeiro: moneyNum(finTok.s), pct: pctTok ? toNum(pctTok.s) : null, liquidezVenc: '', emissorGestor: nome });
+        } else if (section === 'acoes') {
+          const pap = tokAt(ln.items, 40, 100, false);
+          if (!pap || !/^[A-Z0-9]{4}\d{1,2}$/.test(pap.s)) continue;   // ticker tipo BOVA11
+          const finTok = ln.items.find(i => i.x >= 300 && i.x <= 348 && /[\d,]+\.\d/.test(i.s));
+          const pctTok = tokAt(ln.items, 376, 404, true);
+          if (!finTok) continue;
+          carteira.push({ cnpj: null, nome: pap.s, classe: 'Renda Variável', subclasse: 'AÇÕES', subclasseAtivo: 'Ações',
+            financeiro: moneyNum(finTok.s), pct: pctTok ? toNum(pctTok.s) : null, liquidezVenc: 'D+2', emissorGestor: pap.s });
+        } else if (section === 'comp') {
+          if (!/COMPROMISSADA/i.test(t)) continue;
+          const finTok = ln.items.find(i => /^\$[\d,]+\.\d/.test(i.s));
+          if (!finTok) continue;
+          const fin = moneyNum(finTok.s);
+          carteira.push({ cnpj: null, nome: 'Operação Compromissada', classe: 'Renda Fixa', subclasse: 'Compromissada',
+            subclasseAtivo: 'Operação Compromissada', financeiro: fin,
+            pct: patrimonio ? Math.round(fin / patrimonio * 10000) / 100 : null, liquidezVenc: 'D+1', emissorGestor: 'BTG Pactual (compromissada)' });
+        }
+      }
+    }
+    // % do PL de fallback (calcula do financeiro quando a coluna não veio)
+    for (const h of carteira) if (h.pct == null && patrimonio) h.pct = Math.round(h.financeiro / patrimonio * 10000) / 100;
+
+    const porClasse = {};
+    for (const h of carteira) porClasse[h.classe] = (porClasse[h.classe] || 0) + (h.pct || 0);
+    const alocacaoClasse = Object.entries(porClasse).map(([classe, pct]) => ({ classe, pct: Math.round(pct * 100) / 100, valor: null }));
+    const porEmissor = {};
+    for (const h of carteira) { const k = h.emissorGestor || h.nome; porEmissor[k] = (porEmissor[k] || 0) + (h.pct || 0); }
+    const concentracao = Object.entries(porEmissor).map(([nome, pct]) => ({ nome, pct: Math.round(pct * 100) / 100 }))
+      .sort((a, b) => b.pct - a.pct).slice(0, 20);
+    const somaPL = carteira.reduce((s, h) => s + (h.pct || 0), 0);
+    return {
+      formato: 'resumo',
+      header: { fundo, geradoEm: null, cotaData: dataPos, cota, patrimonio },
+      alocacaoClasse, alocacaoSubclasse: [], concentracao, liquidez: [], carteira,
+      diagnostico: { holdings: carteira.length, somaPctPL: Math.round(somaPL * 100) / 100, classes: alocacaoClasse.length, formato: 'resumo' },
+    };
+  }
+
   function detectarFormato(pages) {
-    const t = (pages[0] || []).map(i => i.s).join(' ');
-    if (/Carteira Di[áa]ria/i.test(t) || /Data de Posi[çc][ãa]o/i.test(t)) return 'bradesco';
+    const t0 = (pages[0] || []).map(i => i.s).join(' ');
+    const tAll = pages.reduce((a, p) => a + ' ' + p.map(i => i.s).join(' '), '');
+    if (/Resumo da Carteira/i.test(t0) && /Portf[óo]lio Investido|\bCnpj\b|QUANTIDADE DE COTAS/i.test(tAll)) return 'resumo';
+    if (/Carteira Di[áa]ria/i.test(t0) || /Data de Posi[çc][ãa]o/i.test(t0)) return 'bradesco';
     return 'btg';
   }
 
@@ -954,7 +1053,10 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
   }
 
   function assemble(pages) {
-    return detectarFormato(pages) === 'bradesco' ? assembleBradesco(pages) : assembleBTG(pages);
+    const fmt = detectarFormato(pages);
+    if (fmt === 'resumo') return assembleResumo(pages);
+    if (fmt === 'bradesco') return assembleBradesco(pages);
+    return assembleBTG(pages);
   }
 
   async function parse(pdfjsLib, data) {
@@ -962,7 +1064,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
     return assemble(await pagesOf(pdfjsLib, buf));
   }
 
-  return { parse, assemble, assembleBTG, assembleBradesco, detectarFormato,
+  return { parse, assemble, assembleBTG, assembleBradesco, assembleResumo, detectarFormato,
     _internals: { linesOf, parseHeader, parseLiquidez, parseClasse, parseSubclasse, parseConcentracao, parseCarteira, toNum, isNum } };
 });
 </script>
@@ -1088,6 +1190,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
       return {
         key: h.nome + '#' + i, nome: h.nome, classe: h.classe || 'Outros', subclasse: h.subclasse || '',
         subclasseAtivo: h.subclasseAtivo || '', pesoAtual: h.pct || 0, financeiro: h.financeiro || 0,
+        cnpj: (h.cnpj || '').toString().replace(/\D/g, '') || null,
         emissor: emissor || h.nome, grupo: (emissor || h.nome).split(' ').slice(0, 2).join(' '),
         liqDias: liq, exterior, publico, credito, liquidezVenc: h.liquidezVenc || (isAcao ? 'D+2' : ''),
       };
@@ -1101,13 +1204,17 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
   // casamento automático (por nome), ignorando o De-Para manual
   function autoMatch(holding, quantumIndex) {
     if (!quantumIndex) return null;
+    // 1) casamento por CNPJ (exato e mais confiável), quando disponível dos dois lados
+    if (holding.cnpj && quantumIndex.byCnpj && quantumIndex.byCnpj[holding.cnpj]) return quantumIndex.byCnpj[holding.cnpj];
+    // 2) casamento por nome (fallback)
     const key = normNome(holding.nome);
     if (!key) return null;
     if (quantumIndex.exact[key]) return quantumIndex.exact[key];
     const toks = new Set(key.split(' ').filter(t => t.length > 2));
     let best = null, bestScore = 0;
     for (const q of quantumIndex.list) {
-      const qt = q.__toks; let s = 0;
+      const qt = q.__toks; if (!qt) continue;
+      let s = 0;
       for (const t of toks) if (qt.has(t)) s++;
       const score = s / Math.max(1, toks.size);
       if (score > bestScore) { bestScore = score; best = q; }
@@ -1122,6 +1229,12 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
       if (ov !== undefined) return ov === '__none__' ? null : ((quantumIndex.byNome && quantumIndex.byNome[ov]) || null);
     }
     return autoMatch(holding, quantumIndex);
+  }
+  // como o casamento automático foi obtido: 'cnpj' | 'nome' | null (usado só p/ rotular)
+  function matchType(holding, quantumIndex) {
+    if (!quantumIndex || !autoMatch(holding, quantumIndex)) return null;
+    if (holding.cnpj && quantumIndex.byCnpj && quantumIndex.byCnpj[holding.cnpj]) return 'cnpj';
+    return 'nome';
   }
 
   // ------------------------------------------------------------- perfil
@@ -1308,7 +1421,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
   }
 
   return { PRESETS, PRESET_KEYS: Object.keys(PRESETS), EXTERIOR_TETO, presetPara, presetDe, detectarClasse,
-    normalizarCarteira, perfil, avaliar, AUTO_RULES, CHECKLIST, casarQuantum, autoMatch, normNome, baseISO };
+    normalizarCarteira, perfil, avaliar, AUTO_RULES, CHECKLIST, casarQuantum, autoMatch, matchType, normNome, baseISO };
 });
 </script>
 <script>/* ============================================================================
@@ -1344,6 +1457,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
     return money(n);
   };
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const fmtCnpj = (s) => { const d = String(s || '').replace(/\D/g, ''); return d.length === 14 ? d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5') : (s || ''); };
   const SEG = ['#3D35CE', '#1C0845', '#2E8B8B', '#B45309', '#1B7340', '#7A73E8', '#C2410C', '#0E7490', '#9B9B9B', '#6D28D9'];
 
   function toast(msg, kind) {
@@ -1538,13 +1652,13 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
   function renderInput() {
     const f = fundo();
     let html = `<div class="panel"><div class="panel-head">
-      <div class="ph-text"><h2>Posição dos fundos${help('Arraste os PDFs dos fundos. O app detecta se é BTG (Relatório de Performance Diário/AcompFI) ou Bradesco (Carteira Diária) e extrai carteira, alocação por classe, concentração e liquidez. Você pode carregar vários fundos de uma vez.')}</h2><p>Importe o <b>Relatório de Performance Diário (BTG)</b> ou a <b>Carteira Diária (Bradesco)</b>. O formato é detectado automaticamente.</p></div>
+      <div class="ph-text"><h2>Posição dos fundos${help('Arraste os PDFs dos fundos. O app detecta o formato: BTG (Relatório de Performance Diário/AcompFI ou Resumo da Carteira) ou Bradesco (Carteira Diária), e extrai carteira, alocação por classe, concentração e liquidez. O Resumo da Carteira traz o CNPJ de cada fundo investido, usado no casamento com o Quantum. Você pode carregar vários fundos de uma vez.')}</h2><p>Importe o <b>Relatório de Performance Diário</b> ou o <b>Resumo da Carteira</b> (BTG), ou a <b>Carteira Diária</b> (Bradesco). O formato é detectado automaticamente.</p></div>
       <div class="ph-actions">
         <button class="btn btn-outline btn-sm" id="btn-exemplo">Carregar exemplo</button>
         <label class="btn btn-primary btn-sm">Importar PDF<input type="file" id="file-pdf" accept="application/pdf,.pdf" multiple hidden></label>
       </div></div><div class="panel-body">`;
     if (!STATE.fundos.length) {
-      html += dropzoneHTML('dz-pdf', 'Solte os PDFs aqui ou clique para selecionar', 'Aceita múltiplos fundos de uma vez', 'PDF · BTG AcompFI · Bradesco Carteira Diária');
+      html += dropzoneHTML('dz-pdf', 'Solte os PDFs aqui ou clique para selecionar', 'Aceita múltiplos fundos de uma vez', 'PDF · BTG AcompFI · BTG Resumo da Carteira · Bradesco Carteira Diária');
     } else {
       html += `<div class="row wrap" style="gap:8px;margin-bottom:6px">`;
       html += STATE.fundos.map(fd => {
@@ -1778,7 +1892,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
     return { headers, rows, janela: '12 meses' };
   }
   function buildQuantumIndex(rows, cols) {
-    const list = [], exact = {}, byNome = {};
+    const list = [], exact = {}, byNome = {}, byCnpj = {};
     for (const r of rows) {
       const nome = cols.nome != null ? r[cols.nome] : null;
       if (!nome) continue;
@@ -1796,8 +1910,10 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
       };
       o.__toks = new Set(Engine.normNome(nome).split(' ').filter(t => t.length > 2));
       list.push(o); exact[Engine.normNome(nome)] = o; byNome[nome] = o;
+      const ck = (o.cnpj || '').toString().replace(/\D/g, '');
+      if (ck.length === 14) byCnpj[ck] = o;
     }
-    return { list, exact, byNome, overrides: STATE.depara || {} };
+    return { list, exact, byNome, byCnpj, overrides: STATE.depara || {} };
   }
   function coberturaQuantum() {
     const f = fundo(); if (!f || !STATE.quantum) return '—';
@@ -1816,10 +1932,11 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
       const auto = Engine.autoMatch(hd, STATE.quantum.index);
       const manual = STATE.depara[hd.nome];
       const eff = Engine.casarQuantum(hd, STATE.quantum.index);
+      const mtype = Engine.matchType(hd, STATE.quantum.index);
       const origem = manual !== undefined
         ? (manual === '__none__' ? '<span class="match-none">não casar</span>' : '<span class="match-manual">manual</span>')
-        : (auto ? '<span class="match-auto">automático</span>' : '<span class="match-none">sem match</span>');
-      h += `<tr><td><b>${esc(hd.nome)}</b><div class="small muted">${esc(hd.classe)} · D+${hd.liqDias}</div></td>
+        : (auto ? (mtype === 'cnpj' ? '<span class="match-auto" title="casado pelo CNPJ">CNPJ</span>' : '<span class="match-auto" title="casado pelo nome">nome</span>') : '<span class="match-none">sem match</span>');
+      h += `<tr><td><b>${esc(hd.nome)}</b><div class="small muted">${esc(hd.classe)} · D+${hd.liqDias}${hd.cnpj ? ' · ' + esc(fmtCnpj(hd.cnpj)) : ''}</div></td>
         <td><select class="depara-sel${manual !== undefined ? ' manual' : ''}" data-depara="${esc(hd.nome)}">
           <option value="">— automático${auto ? ': ' + esc(auto.nome) : ' (nenhum)'}</option>
           <option value="__none__" ${manual === '__none__' ? 'selected' : ''}>✕ Não casar</option>
@@ -2251,7 +2368,8 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
         const ix = STATE.fundos.findIndex(x => x.header.fundo === fund.header.fundo);
         if (ix >= 0) STATE.fundos[ix] = fund; else STATE.fundos.push(fund);
         STATE.fundoAtivo = fund.header.fundo;
-        toast(`${fund.header.fundo} importado (${fund.formato === 'bradesco' ? 'Bradesco' : 'BTG'}, ${fund.carteira.length} ativos)`, 'ok');
+        const fmtLbl = fund.formato === 'bradesco' ? 'Bradesco' : fund.formato === 'resumo' ? 'BTG Resumo da Carteira' : 'BTG';
+        toast(`${fund.header.fundo} importado (${fmtLbl}, ${fund.carteira.length} ativos)`, 'ok');
       } catch (e) { console.error(e); toast('Erro ao ler ' + file.name + ': ' + e.message, 'err'); }
     }
     renderStepper(); rerenderActive();
