@@ -56,20 +56,27 @@
 
   function detectarClasse(nomeFundo) {
     const n = (nomeFundo || '').toUpperCase();
-    if (/\bCP\b|CRED|CRÉD|CREDITO|CRÉDITO/.test(n)) return 'RF_CP';
-    if (/\bFIM\b|MULT|MULTIMERCADO|MACRO/.test(n)) return 'MULTIMERCADO';
+    // O TIPO do fundo (FIA/Cambial/FIM/FIRF) tem prioridade sobre o qualificador
+    // "CP"/"Crédito Privado", que apenas refina um fundo de Renda Fixa.
+    // Ex.: "... FIM CP ..." é um Multimercado crédito privado → MULTIMERCADO (sem piso),
+    // e não um Renda Fixa Crédito Privado (que forçaria piso de 80% em RF).
+    const cp = /\bCP\b|CRED|CRÉD|CREDITO|CRÉDITO/.test(n);
     if (/\bFIA\b|AÇÕES|ACOES|A[ÇC][OÕ]ES|EQUITY|\bAÇ\b/.test(n)) return 'ACOES';
     if (/CAMBIAL|CÂMBIO|CAMBIO|DÓLAR|DOLAR/.test(n)) return 'CAMBIAL';
-    if (/\bRF\b|RENDA FIXA/.test(n)) return 'RF';
+    if (/\bFIM\b|MULT|MULTIMERCADO|MACRO/.test(n)) return 'MULTIMERCADO';
+    if (/\bFIRF\b|\bRF\b|RENDA FIXA/.test(n)) return cp ? 'RF_CP' : 'RF';
+    if (cp) return 'RF_CP';
     return 'MULTIMERCADO';
   }
-  function presetPara(nomeFundo) {
-    const k = detectarClasse(nomeFundo);
-    const p = { chave: k, ...JSON.parse(JSON.stringify(PRESETS[k])) };
+  function presetDe(chave) {
+    const p = { chave, ...JSON.parse(JSON.stringify(PRESETS[chave])) };
     if (p.liqResgateMin == null) p.liqResgateMin = 90;   // % mín. conversível no prazo de resgate
     if (p.lcrD1Dias == null) p.lcrD1Dias = 1;            // janela do LCR curtíssimo prazo
     if (p.lcrD5Dias == null) p.lcrD5Dias = 5;            // janela do LCR curto prazo
     return p;
+  }
+  function presetPara(nomeFundo) {
+    return presetDe(detectarClasse(nomeFundo));
   }
 
   // ------------------------------------------------- normalização de holdings
@@ -332,6 +339,6 @@
     return { perfil: P, resultados, resumo };
   }
 
-  return { PRESETS, PRESET_KEYS: Object.keys(PRESETS), EXTERIOR_TETO, presetPara, detectarClasse,
+  return { PRESETS, PRESET_KEYS: Object.keys(PRESETS), EXTERIOR_TETO, presetPara, presetDe, detectarClasse,
     normalizarCarteira, perfil, avaliar, AUTO_RULES, CHECKLIST, casarQuantum, autoMatch, normNome, baseISO };
 });

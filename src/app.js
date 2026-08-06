@@ -137,7 +137,12 @@
       p.publicoAlvo = 'QUALIFICADO';
       STATE.politicas[f.header.fundo] = p;
     }
-    return STATE.politicas[f.header.fundo];
+    const p = STATE.politicas[f.header.fundo];
+    // A tipificação (piso do tipo do fundo) é derivada do preset — não é campo
+    // editável separado. Mantém sempre coerente com a classe/preset selecionada.
+    const pr = Engine.PRESETS[p.chave];
+    if (pr) { p.tipificacaoClasse = pr.tipificacaoClasse; p.tipificacaoMin = pr.tipificacaoMin; }
+    return p;
   }
   function cenarios() {
     const f = fundo(); if (!f) return [];
@@ -554,12 +559,17 @@
     const defExtra = { liqResgateMin: 90, lcrD1Dias: 1, lcrD5Dias: 5 };
     const dof = (k) => defP[k] != null ? defP[k] : defExtra[k];
     polChanged = {};
-    ['limiteEmissor', 'limiteGrupo', 'maxAtivo', 'top5', 'top10', 'hhiMax', 'minPosicoes', 'resgateDias', 'liqResgateMin', 'lcrD1Dias', 'lcrD1', 'lcrD5Dias', 'lcrD5', 'caixaMin', 'creditoMax', 'volMax', 'varMax', 'tipificacaoMin'].forEach(k => { const d = dof(k); if (d != null && String(pol[k]) !== String(d)) polChanged[k] = true; });
+    ['limiteEmissor', 'limiteGrupo', 'maxAtivo', 'top5', 'top10', 'hhiMax', 'minPosicoes', 'resgateDias', 'liqResgateMin', 'lcrD1Dias', 'lcrD1', 'lcrD5Dias', 'lcrD5', 'caixaMin', 'creditoMax', 'volMax', 'varMax'].forEach(k => { const d = dof(k); if (d != null && String(pol[k]) !== String(d)) polChanged[k] = true; });
     const pubChg = (pol.publicoAlvo || 'QUALIFICADO') !== 'QUALIFICADO';
-    const tipChg = (pol.tipificacaoClasse || '') !== (defP.tipificacaoClasse || '');
     const bandChg = {};
     Object.entries(pol.bandas || {}).forEach(([c, b]) => { const db = (defP.bandas || {})[c]; if (!db || +db[0] !== +b[0] || +db[1] !== +b[1]) bandChg[c] = true; });
-    const nAlt = Object.keys(polChanged).length + (pubChg ? 1 : 0) + (tipChg ? 1 : 0) + Object.keys(bandChg).length;
+    const nAlt = Object.keys(polChanged).length + (pubChg ? 1 : 0) + Object.keys(bandChg).length;
+
+    // --- aviso não-destrutivo: preset parece não combinar com o nome do fundo ---
+    const detected = Engine.detectarClasse(f.header.fundo);
+    const presetMismatch = (!pol.presetManual && detected !== pol.chave)
+      ? { chave: detected, rotulo: Engine.PRESETS[detected].rotulo, atual: Engine.PRESETS[pol.chave].rotulo }
+      : null;
 
     let html = `<div class="panel"><div class="panel-head"><div class="ph-text"><h2>Política de investimento & perfil</h2>
       <p>Parâmetros do mandato usados no enquadramento. Ajuste conforme o regulamento do fundo. Salvo automaticamente.</p></div>
@@ -569,6 +579,7 @@
         <button class="btn btn-ghost btn-sm" id="pol-reset">Restaurar preset</button>
       </div></div>
       <div class="panel-body">
+      ${presetMismatch ? `<div class="notice notice-warn" style="margin-bottom:16px"><span class="n-ico">⚠</span><div>Pelo nome, este fundo parece ser <b>${esc(presetMismatch.rotulo)}</b>, mas está configurado como <b>${esc(presetMismatch.atual)}</b>. Isso pode gerar violações e pisos incompatíveis. <button class="btn btn-sm btn-outline" id="pol-apply-detected" data-preset="${esc(presetMismatch.chave)}" style="margin-left:6px">Aplicar preset ${esc(presetMismatch.rotulo)}</button></div></div>` : ''}
       ${nAlt ? `<div class="notice notice-warn" style="margin-bottom:16px"><span class="n-ico">✎</span><div><b>${nAlt} parâmetro(s) alterado(s)</b> em relação ao padrão CVM 175 (${esc(Engine.PRESETS[pol.chave].rotulo)}). Os campos alterados aparecem destacados em âmbar. Use <b>Restaurar preset</b> para voltar aos defaults regulatórios.</div></div>`
         : `<div class="notice notice-ok" style="margin-bottom:16px"><span class="n-ico">✓</span><div>Todos os parâmetros estão no <b>padrão CVM 175</b> (${esc(Engine.PRESETS[pol.chave].rotulo)}).</div></div>`}
       <div class="form-grid">
@@ -586,15 +597,13 @@
     }
     html += `</tbody></table></div>
       <hr class="divider-rule">
-      <div class="section-title">Tipificação da classe</div>
-      <p class="small muted" style="margin:-4px 0 10px;max-width:80ch">Define apenas o <b>piso obrigatório</b> do tipo do fundo (regra própria da CVM 175) — é <b>independente</b> dos limites de concentração e liquidez abaixo, então mexer aqui não altera aqueles campos. Um <b>Multimercado não tem piso</b>: por isso vem em <i>“Sem piso”</i>. Só use se o fundo for de Ações (≥67% em RV), Renda Fixa (≥80%) ou Cambial (≥80%).</p>
-      <div class="form-grid">
-        <div class="field"><label>Fator de risco (piso da classe)${help('Classe cujo piso a regulação exige manter. Ex.: fundo de Ações precisa de ≥67% em Renda Variável; RF ≥80%; Cambial ≥80%. Multimercado não tem piso obrigatório. Independente dos limites abaixo.')}${tipChg ? '<span class="tag-alt">alterado</span>' : ''}</label>
-          <select class="select" data-pol-txt="tipificacaoClasse">
-            ${['', 'Renda Variável', 'Renda Fixa', 'Moeda', 'Retorno Absoluto'].map(o => `<option value="${o}" ${(pol.tipificacaoClasse || '') === o ? 'selected' : ''}>${o || 'Sem piso (Multimercado)'}</option>`).join('')}
-          </select><div class="hint">Classe que deve manter o piso (ex.: Ações → Renda Variável).</div></div>
-        ${numField('tipificacaoMin', 'Piso da tipificação (%)', pol.tipificacaoMin, 1, 'Percentual mínimo do PL na classe do fator de risco que dá nome ao fundo (CVM 175). Ex.: Ações 67%, RF 80%.')}
-      </div>
+      <div class="section-title">Tipificação do tipo do fundo (CVM 175)</div>
+      ${(() => {
+        const tc = pol.tipificacaoClasse, tm = pol.tipificacaoMin;
+        return tc
+          ? `<div class="notice notice-info" style="margin:2px 0 4px"><span class="n-ico">ℹ</span><div>Como <b>${esc(Engine.PRESETS[pol.chave].rotulo)}</b>, a CVM 175 exige manter no mínimo <b>${pf(tm, 0)} do PL em ${esc(tc)}</b>. <b>Não é um campo à parte:</b> esse piso é exatamente o <b>Mínimo % da banda de ${esc(tc)}</b> na tabela acima — mudar lá muda aqui. Para tirar o piso, troque o preset para Multimercado.</div></div>`
+          : `<div class="notice notice-info" style="margin:2px 0 4px"><span class="n-ico">ℹ</span><div>Como <b>Multimercado (FIM)</b>, <b>não há piso obrigatório</b> de classe. O fundo pode alocar livremente entre Renda Fixa, Renda Variável, Retorno Absoluto e Moeda, respeitando apenas as <b>bandas da política</b> acima — por isso não aparece nenhum campo de piso aqui.</div></div>`;
+      })()}
       <hr class="divider-rule">
       <div class="section-title">Limites de concentração, liquidez e risco</div>
       <div class="form-grid">
@@ -1102,7 +1111,7 @@
   }
 
   document.addEventListener('click', (e) => {
-    const t = e.target.closest('[data-step],[data-fundo],[data-delfundo],[data-cen],[data-del],[data-gen],[data-pub],[data-rmativo],[data-zerar],#btn-exemplo,#q-exemplo,#q-modelo,#go-pretrade,#pol-reset,#cen-normalizar,#pt-print,#add-ativo-btn,#topbar-reset,#topbar-del,#cfg-export');
+    const t = e.target.closest('[data-step],[data-fundo],[data-delfundo],[data-cen],[data-del],[data-gen],[data-pub],[data-rmativo],[data-zerar],#btn-exemplo,#q-exemplo,#q-modelo,#go-pretrade,#pol-reset,#pol-apply-detected,#cen-normalizar,#pt-print,#add-ativo-btn,#topbar-reset,#topbar-del,#cfg-export');
     if (!t) return;
     if (t.dataset.delfundo != null) return removerFundo(t.dataset.delfundo);
     if (t.id === 'topbar-del') { const n = STATE.fundoAtivo; if (n && window.confirm('Remover o fundo "' + n + '"? Os cenários dele também serão removidos. Os demais fundos, a política e o De-Para são mantidos.')) removerFundo(n); return; }
@@ -1123,6 +1132,7 @@
     if (t.dataset.gen) return gerarCenario(t.dataset.gen);
     if (t.dataset.pub) { policy().publicoAlvo = t.dataset.pub; persist(); rerenderActive(); return; }
     if (t.id === 'pol-reset') { const f = fundo(); const p = Engine.presetPara(f.header.fundo); p.publicoAlvo = policy().publicoAlvo; STATE.politicas[f.header.fundo] = p; persist(); rerenderActive(); return; }
+    if (t.id === 'pol-apply-detected') { const f = fundo(); const keep = policy().publicoAlvo; const p = Engine.presetDe(t.dataset.preset); p.publicoAlvo = keep; STATE.politicas[f.header.fundo] = p; persist(); rerenderActive(); return; }
     if (t.id === 'cen-normalizar') return normalizarCenario();
   });
 
@@ -1131,7 +1141,7 @@
     if (t.id === 'file-pdf') { if (t.files.length) handlePdfFiles(Array.from(t.files)); t.value = ''; }
     else if (t.id === 'file-xlsx') { if (t.files.length) handleXlsx(Array.from(t.files)); t.value = ''; }
     else if (t.id === 'file-cfg') { if (t.files.length) importarConfig(t.files[0]); t.value = ''; }
-    else if (t.id === 'pol-preset') { const f = fundo(); const keep = policy().publicoAlvo; const p = { chave: t.value, ...JSON.parse(JSON.stringify(Engine.PRESETS[t.value])) }; p.publicoAlvo = keep; STATE.politicas[f.header.fundo] = p; persist(); rerenderActive(); }
+    else if (t.id === 'pol-preset') { const f = fundo(); const keep = policy().publicoAlvo; const p = Engine.presetDe(t.value); p.publicoAlvo = keep; p.presetManual = true; STATE.politicas[f.header.fundo] = p; persist(); rerenderActive(); }
     else if (t.id === 'pt-cenario') { STATE.cenarioAtivo[fundo().header.fundo] = t.value; rerenderActive(); }
     else if (t.id === 'topbar-fund') { STATE.fundoAtivo = t.value; persist(); renderStepper(); rerenderActive(); }
     else if (t.dataset && t.dataset.chk) { const f = fundo(); (STATE.checklist[f.header.fundo] = STATE.checklist[f.header.fundo] || {})[t.dataset.chk] = t.checked; persist(); renderPretrade(); }
