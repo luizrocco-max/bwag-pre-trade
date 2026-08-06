@@ -1856,7 +1856,11 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
 
     let html = `<div class="panel"><div class="panel-head"><div class="ph-text"><h2>Política de investimento & perfil</h2>
       <p>Parâmetros do mandato usados no enquadramento. Ajuste conforme o regulamento do fundo. Salvo automaticamente.</p></div>
-      <div class="ph-actions"><button class="btn btn-ghost btn-sm" id="pol-reset">Restaurar preset</button></div></div>
+      <div class="ph-actions">
+        <button class="btn btn-outline btn-sm" id="cfg-export" title="Baixar política + De-Para num arquivo para compartilhar com a equipe">Exportar config</button>
+        <label class="btn btn-outline btn-sm" title="Carregar uma configuração compartilhada">Importar config<input type="file" id="file-cfg" accept=".json,application/json" hidden></label>
+        <button class="btn btn-ghost btn-sm" id="pol-reset">Restaurar preset</button>
+      </div></div>
       <div class="panel-body">
       ${nAlt ? `<div class="notice notice-warn" style="margin-bottom:16px"><span class="n-ico">✎</span><div><b>${nAlt} parâmetro(s) alterado(s)</b> em relação ao padrão CVM 175 (${esc(Engine.PRESETS[pol.chave].rotulo)}). Os campos alterados aparecem destacados em âmbar. Use <b>Restaurar preset</b> para voltar aos defaults regulatórios.</div></div>`
         : `<div class="notice notice-ok" style="margin-bottom:16px"><span class="n-ico">✓</span><div>Todos os parâmetros estão no <b>padrão CVM 175</b> (${esc(Engine.PRESETS[pol.chave].rotulo)}).</div></div>`}
@@ -2262,6 +2266,29 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'modelo_quantum_axis.csv'; a.click();
   }
 
+  // -------------------------------------------- exportar/importar configuração
+  function exportarConfig() {
+    const nP = Object.keys(STATE.politicas || {}).length, nD = Object.keys(STATE.depara || {}).length;
+    const data = { tipo: 'bwag-pretrade-config', versao: 1, exportadoEm: new Date().toISOString().slice(0, 10),
+      politicas: STATE.politicas, depara: STATE.depara };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = 'bwag-pretrade-config.json'; a.click();
+    toast(`Configuração exportada (${nP} política(s), ${nD} De-Para)`, 'ok');
+  }
+  async function importarConfig(file) {
+    if (!file) return;
+    try {
+      const d = JSON.parse(await file.text());
+      if (d.tipo !== 'bwag-pretrade-config') { toast('Arquivo não é uma configuração do Pré-Trade', 'err'); return; }
+      if (d.politicas) STATE.politicas = Object.assign({}, STATE.politicas, d.politicas);
+      if (d.depara) STATE.depara = Object.assign({}, STATE.depara, d.depara);
+      if (STATE.quantum) STATE.quantum.index.overrides = STATE.depara;
+      persist(); rerenderActive();
+      toast(`Configuração importada (${Object.keys(d.politicas || {}).length} política(s))`, 'ok');
+    } catch (e) { toast('Erro ao ler configuração: ' + e.message, 'err'); }
+  }
+
   // ---------------------------------------------------- geradores de cenário
   function novoId() { return 'c' + (cenarios().length) + '_' + Math.round(cenarios().reduce((s, c) => s + c.nome.length, 1) * 7 % 9973); }
   function addCenario(nome, pesos) {
@@ -2367,9 +2394,10 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
   }
 
   document.addEventListener('click', (e) => {
-    const t = e.target.closest('[data-step],[data-fundo],[data-cen],[data-del],[data-gen],[data-pub],[data-rmativo],[data-zerar],#btn-exemplo,#q-exemplo,#q-modelo,#go-pretrade,#pol-reset,#cen-normalizar,#pt-print,#add-ativo-btn,#topbar-reset');
+    const t = e.target.closest('[data-step],[data-fundo],[data-cen],[data-del],[data-gen],[data-pub],[data-rmativo],[data-zerar],#btn-exemplo,#q-exemplo,#q-modelo,#go-pretrade,#pol-reset,#cen-normalizar,#pt-print,#add-ativo-btn,#topbar-reset,#cfg-export');
     if (!t) return;
     if (t.id === 'topbar-reset') return limparTudo();
+    if (t.id === 'cfg-export') return exportarConfig();
     if (t.id === 'add-ativo-btn') return incluirAtivo();
     if (t.dataset.rmativo != null) { const c = cenarioAtual(); c.extra = (c.extra || []).filter(h => h.key !== t.dataset.rmativo); if (c.pesos) delete c.pesos[t.dataset.rmativo]; rerenderActive(); return; }
     if (t.dataset.zerar != null) { const c = cenarioAtual(); if (!c.pesos) c.pesos = {}; const f = fundo(); Engine.normalizarCarteira(f).concat(c.extra || []).forEach(h => { if (c.pesos[h.key] == null) c.pesos[h.key] = h.pesoAtual; }); c.pesos[t.dataset.zerar] = 0; rerenderActive(); return; }
@@ -2392,6 +2420,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
     const t = e.target;
     if (t.id === 'file-pdf') { if (t.files.length) handlePdfFiles(Array.from(t.files)); t.value = ''; }
     else if (t.id === 'file-xlsx') { if (t.files.length) handleXlsx(Array.from(t.files)); t.value = ''; }
+    else if (t.id === 'file-cfg') { if (t.files.length) importarConfig(t.files[0]); t.value = ''; }
     else if (t.id === 'pol-preset') { const f = fundo(); const keep = policy().publicoAlvo; const p = { chave: t.value, ...JSON.parse(JSON.stringify(Engine.PRESETS[t.value])) }; p.publicoAlvo = keep; STATE.politicas[f.header.fundo] = p; persist(); rerenderActive(); }
     else if (t.id === 'pt-cenario') { STATE.cenarioAtivo[fundo().header.fundo] = t.value; rerenderActive(); }
     else if (t.id === 'topbar-fund') { STATE.fundoAtivo = t.value; renderStepper(); rerenderActive(); }
