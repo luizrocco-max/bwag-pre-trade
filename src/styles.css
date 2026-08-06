@@ -111,6 +111,7 @@ button { font-family: inherit; }
   font-size: 12px; color: var(--text-muted);
 }
 .footer-inner b { color: var(--navy); font-weight: 700; }
+.footer-ver { font-family: var(--mono, ui-monospace, Menlo, Consolas, monospace); color: var(--navy); font-weight: 600; }
 
 /* ------------------------------------------------------------------ stepper */
 .stepper {

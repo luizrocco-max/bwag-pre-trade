@@ -112,6 +112,7 @@ button { font-family: inherit; }
   font-size: 12px; color: var(--text-muted);
 }
 .footer-inner b { color: var(--navy); font-weight: 700; }
+.footer-ver { font-family: var(--mono, ui-monospace, Menlo, Consolas, monospace); color: var(--navy); font-weight: 600; }
 
 /* ------------------------------------------------------------------ stepper */
 .stepper {
@@ -493,7 +494,7 @@ table.pr tr.ok td:first-child { box-shadow: inset 3px 0 0 var(--pos); }
   <footer class="footer">
     <div class="footer-inner">
       <div><b>BWAG</b> · Brazil Wealth Advisory Group · Uso interno · Confidencial</div>
-      <div>Ferramenta de apoio ao enquadramento pré-negociação. Não substitui a análise de compliance.</div>
+      <div>Ferramenta de apoio ao enquadramento pré-negociação. Não substitui a análise de compliance. · <span class="footer-ver">versão 2026.08.06.0328</span></div>
     </div>
   </footer>
 </div>
@@ -1487,7 +1488,8 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
     const opts = STATE.fundos.map(fd => `<option value="${esc(fd.header.fundo)}" ${fd.header.fundo === STATE.fundoAtivo ? 'selected' : ''}>${esc(fd.header.fundo)}</option>`).join('');
     box.innerHTML = `<div class="row gap-sm" style="justify-content:flex-end">
         <select id="topbar-fund" class="topbar-fund" title="Trocar de fundo (mantém tudo salvo)">${opts}</select>
-        <button class="btn btn-ghost btn-sm" id="topbar-reset" title="Recomeçar — remove os fundos e cenários (mantém política e De-Para)">Limpar</button>
+        <button class="btn btn-ghost btn-sm" id="topbar-del" title="Remover o fundo ativo (mantém os demais fundos, a política e o De-Para)">Remover fundo</button>
+        <button class="btn btn-ghost btn-sm" id="topbar-reset" title="Recomeçar — remove todos os fundos e cenários (mantém política e De-Para)">Limpar</button>
       </div>
       <div style="margin-top:4px">${f ? `${f.formato === 'bradesco' ? 'Bradesco' : 'BTG'} · posição ${f.header.cotaData || '—'} · PL ${moneyK(f.header.patrimonio)} · ${STATE.fundos.length} fundo(s)` : 'Selecione um fundo'}</div>`;
   }
@@ -1882,8 +1884,9 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
     html += `</tbody></table></div>
       <hr class="divider-rule">
       <div class="section-title">Tipificação da classe</div>
+      <p class="small muted" style="margin:-4px 0 10px;max-width:80ch">Define apenas o <b>piso obrigatório</b> do tipo do fundo (regra própria da CVM 175) — é <b>independente</b> dos limites de concentração e liquidez abaixo, então mexer aqui não altera aqueles campos. Um <b>Multimercado não tem piso</b>: por isso vem em <i>“Sem piso”</i>. Só use se o fundo for de Ações (≥67% em RV), Renda Fixa (≥80%) ou Cambial (≥80%).</p>
       <div class="form-grid">
-        <div class="field"><label>Fator de risco (piso da classe)${help('Classe cujo piso a regulação exige manter. Ex.: fundo de Ações precisa de ≥67% em Renda Variável; RF ≥80%; Cambial ≥80%. Multimercado não tem piso obrigatório.')}${tipChg ? '<span class="tag-alt">alterado</span>' : ''}</label>
+        <div class="field"><label>Fator de risco (piso da classe)${help('Classe cujo piso a regulação exige manter. Ex.: fundo de Ações precisa de ≥67% em Renda Variável; RF ≥80%; Cambial ≥80%. Multimercado não tem piso obrigatório. Independente dos limites abaixo.')}${tipChg ? '<span class="tag-alt">alterado</span>' : ''}</label>
           <select class="select" data-pol-txt="tipificacaoClasse">
             ${['', 'Renda Variável', 'Renda Fixa', 'Moeda', 'Retorno Absoluto'].map(o => `<option value="${o}" ${(pol.tipificacaoClasse || '') === o ? 'selected' : ''}>${o || 'Sem piso (Multimercado)'}</option>`).join('')}
           </select><div class="hint">Classe que deve manter o piso (ex.: Ações → Renda Variável).</div></div>
@@ -2396,9 +2399,10 @@ if (typeof module !== 'undefined' && module.exports) module.exports = { RULE_REF
   }
 
   document.addEventListener('click', (e) => {
-    const t = e.target.closest('[data-step],[data-fundo],[data-delfundo],[data-cen],[data-del],[data-gen],[data-pub],[data-rmativo],[data-zerar],#btn-exemplo,#q-exemplo,#q-modelo,#go-pretrade,#pol-reset,#cen-normalizar,#pt-print,#add-ativo-btn,#topbar-reset,#cfg-export');
+    const t = e.target.closest('[data-step],[data-fundo],[data-delfundo],[data-cen],[data-del],[data-gen],[data-pub],[data-rmativo],[data-zerar],#btn-exemplo,#q-exemplo,#q-modelo,#go-pretrade,#pol-reset,#cen-normalizar,#pt-print,#add-ativo-btn,#topbar-reset,#topbar-del,#cfg-export');
     if (!t) return;
     if (t.dataset.delfundo != null) return removerFundo(t.dataset.delfundo);
+    if (t.id === 'topbar-del') { const n = STATE.fundoAtivo; if (n && window.confirm('Remover o fundo "' + n + '"? Os cenários dele também serão removidos. Os demais fundos, a política e o De-Para são mantidos.')) removerFundo(n); return; }
     if (t.id === 'topbar-reset') return limparTudo();
     if (t.id === 'cfg-export') return exportarConfig();
     if (t.id === 'add-ativo-btn') return incluirAtivo();

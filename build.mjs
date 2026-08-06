@@ -44,7 +44,13 @@ const logoWhite   = 'data:image/png;base64,' + b64('assets/bwag-logo-white.png')
 // IMPORTANTE: usar funções replacer — o conteúdo JS contém sequências "$" que,
 // como string de substituição, seriam interpretadas como padrões ($&, $$, $1...).
 const inject = (tpl, ph, content) => tpl.replace(ph, () => content);
+// Carimbo de versão (data da build) — ajuda a confirmar que o navegador
+// carregou a versão mais recente (evita confusão com cache antigo).
+const now = new Date();
+const pad = (n) => String(n).padStart(2, '0');
+const build = `${now.getFullYear()}.${pad(now.getMonth() + 1)}.${pad(now.getDate())}.${pad(now.getHours())}${pad(now.getMinutes())}`;
 let body = template;
+body = body.replace(/{{BUILD}}/g, () => build);
 body = inject(body, '{{STYLES}}', `<style>\n${styles}\n</style>`);
 body = body.replace(/{{LOGO}}/g, () => logo).replace(/{{LOGO_WHITE}}/g, () => logoWhite);
 // Ordem importa: libs primeiro, depois catálogos/parser/engine, depois app.
